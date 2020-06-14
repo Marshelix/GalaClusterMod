@@ -24,7 +24,8 @@ km2Lyr = 9.461e+12
 km2Mpc = km2Lyr*Lyr2MPc
 h = 0.7 #cosmological parameter
 rmax_glob = 52850*Lyr2MPc
-rmin_glob = 0.05*rmax_glob
+Mpc = 3.087*10**(16)
+rmin_glob = 0.01*Mpc
 r_gran_max = int(100)
 
 a0g = 1
@@ -37,6 +38,8 @@ error_epsi  = 1e-10
 G = 6.67430*10**(-11)   #m^3 kg^-1 s^-2
 Gnew = G*km2Mpc**3/Msol
 
+
+lowest_alpha_val = 1e-1
 
 def einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl,h = h,Om = Om_m, Ol = Om_l):
     '''
@@ -64,11 +67,14 @@ def einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl,h = h,Om = Om_m, Ol = Om_l):
     rs = rdelta/cdelta
     n = 1.0/alpha
     
+    #print("{}".format([H0,Ez,rhocrit,rhodelta,rdelta,rs,n]))
+    
     #central density
     # ps=200.0*cdelta^3.0*((2.0*n)^(n))^3.0*alpha/(3.0*gamma(3.0*n)*(1.0-pgamma(q=(cdelta*(2.0*n)^n)^alpha, shape=3.0*n, lower = FALSE)))         #core density (dc)
     #print("Before central density")
     first_mult =200.0*cdelta**3
     second_mult  = ((2.0*n)**n)**3
+    #print(second_mult)
     third_mult = alpha/(error_epsi + 3*math.gamma(3.0*n))
     fourth_mult = 1/(error_epsi + (1.0-stats.gamma.cdf((cdelta*(2.0*n)**n)**alpha,3.0*n))) 
     rho_cd  = first_mult*second_mult*third_mult*fourth_mult
@@ -85,23 +91,25 @@ def generate_set_einasto_profile(rmax, r_granularity, M200,z,alpha,r0,epsi,rho0,
 def generate_random_einasto_profile_maggie(rmax,r_granularity = r_gran_max):
     profile = []
     Mdelta = 10**(13)*(1+100*random.random())*Msol
-    cdelta = random.random()
-    delta = random.random()/2
-    alpha = random.random()
+    cdelta = np.abs(random.normalvariate(1,1)) #random.random()
+    delta = 200#random.random()/2
+    alpha = np.clip(random.normalvariate(0.5,0.5),lowest_alpha_val,1)
     zl = 0.6+(0.9*random.random())
     #print("{}".format([Mdelta, cdelta,delta,alpha,zl]))
-    r = np.linspace(0.0,rmax,int(r_granularity)) 
+    r = np.linspace(rmin_glob,rmax,int(r_granularity)) 
     profile = einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl)
-    return profile, [Mdelta, cdelta,delta,alpha,zl]
+    return profile, [Mdelta, cdelta,delta,alpha,zl],r
 def generate_n_random_einasto_profile_maggie(num_profiles,rmax = rmax_glob,r_granularity = r_gran_max):
     profiles = []
     profile_params = []
+    radii = []
     for i in range(num_profiles):
-        profile,params = generate_random_einasto_profile_maggie(rmax,r_granularity)
+        profile,params,r = generate_random_einasto_profile_maggie(rmax,r_granularity)
         print("Profile {} generated, length {}".format(i,profile.size))
         profiles.append(profile)
         profile_params.append(params)
-    return profiles, profile_params
+        radii.append(r)
+    return profiles, profile_params,radii
 
 
 def generate_random_einasto_profile(rmax,r_granularity = r_gran_max):
@@ -172,12 +180,12 @@ def print_params(profile_parameters):
     return param_string
 
 if __name__ == "__main__":
-    sample_profile,M,z,alpha,r0,epsi,rho0,k,hz = generate_random_einasto_profile(rmax_glob)
-    s_p_m, s_para_m = generate_n_random_einasto_profile_maggie(1000,rmax_glob)
-    print("Profile parameters: M = {} Ms, z = {},alpha = {}, r0 = {} Mpc, ellipsicity = {}, rho0 = {} Ms/MPc^3,k = {},hz = {}".format(M,z,alpha,r0,epsi,rho0,k,hz))
+    sample_profile,parameters,r = generate_random_einasto_profile(rmax_glob)
+    s_p_m, s_para_m,r = generate_n_random_einasto_profile_maggie(10000,rmax_glob)
+    #print("Profile parameters: M = {} Ms, z = {},alpha = {}, r0 = {} Mpc, ellipsicity = {}, rho0 = {} Ms/MPc^3,k = {},hz = {}".format(M,z,alpha,r0,epsi,rho0,k,hz))
     plt.figure()
     plt.plot(np.linspace(0,rmax_glob,r_gran_max),sample_profile)
-    k_profs,k_params = generate_n_profiles(1)
+    k_profs,k_params,k_r = generate_n_profiles(1)
     plt.figure()
-    plt.plot(np.linspace(0,rmax_glob,r_gran_max),s_p_m[0])
+    plt.plot(r[0],s_p_m[0])
     

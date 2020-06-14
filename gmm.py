@@ -37,11 +37,13 @@ def mdn_loss(y_true, pi, mu, var):
     The eager mode in tensorflow 2.0 makes is extremely easy to write 
     functions like these. It feels a lot more pythonic to me.
     """
+    #throw away first few y values
     out = calc_pdf(y_true, mu, var)
     # multiply with each pi and sum it
     out = tf.multiply(out, pi)
     out = tf.reduce_sum(out, 1, keepdims=True)
     out = -tf.math.log(out + 1e-10)
+    print(tf.reduce_mean(out))
     return tf.reduce_mean(out)
 
 
@@ -52,8 +54,10 @@ def train_step(model, optimizer, train_x, train_y):
         pi_, mu_, var_ = model(train_x, training=True)
         # calculate loss
         loss = mdn_loss(train_y, pi_, mu_, var_)
+        print(loss)
     # compute and apply gradients
     gradients = tape.gradient(loss, model.trainable_variables)
+    print("Gradients: {}".format(gradients))
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     return loss
 
@@ -73,9 +77,9 @@ def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
     return out    
 
 if __name__ == "__main__":
-    sample_profiles,profile_params,associated_r = EinastoSim.generate_n_profiles(1000)
+    sample_profiles,profile_params,associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(10)
     sample_profiles_logged = np.asarray([np.log(p) for p in sample_profiles])
-    EinastoSim.print_params(profile_params[0])
+    #EinastoSim.print_params(profile_params[0])
     
     def create_input_vectors(profile_params, assoc_r):
         assert len(assoc_r) == len(profile_params), "mismatch between parameter and r lengths"
@@ -95,30 +99,30 @@ if __name__ == "__main__":
     
     X_full = create_input_vectors(profile_params, associated_r) 
     X_full = np.asarray(X_full).astype(np.float64)
-    l = len(profile_params[0])+1    #current r and all params
+    l = 1+len(profile_params[0])    #current r and all params
     # Number of gaussians to represent the multimodal distribution
     k = 4
     # Network
     input = tf.keras.Input(shape=(l,))
+    input_transfer_layer = tf.keras.layers.Dense(1,activation = None,dtype = tf.float64)
     layer = tf.keras.layers.Dense(50, activation='tanh', name='baselayer',dtype = tf.float64)(input)
-    mu = tf.keras.layers.Dense((l * k), activation=None, name='mean_layer')(layer)
+    mu = tf.keras.layers.Dense((k), activation=None, name='mean_layer')(layer)
     # variance (should be greater than 0 so we exponentiate it)
     var_layer = tf.keras.layers.Dense((k), activation=None, name='dense_var_layer')(layer)
     var = tf.keras.layers.Lambda(lambda x: tf.math.exp(x), output_shape=(k,), name='variance_layer')(var_layer)
     # mixing coefficient should sum to 1.0
     pi = tf.keras.layers.Dense(k, activation='softmax', name='pi_layer')(layer)
-    
-    model = tf.keras.models.Model(input, [pi, mu, var])
-    optimizer = tf.keras.optimizers.Adam()
-    model.summary()
+
     
     losses = []
-    EPOCHS = 10000
-    print_every = int(0.1 * EPOCHS)
+    EPOCHS = 2
+    print_every = int(1)
     
     # Define model and optimizer
     model = tf.keras.models.Model(input, [pi, mu, var])
-    optimizer = tf.keras.optimizers.Adam()
+    optimizer = tf.keras.optimizers.Adam(1e-30)
+    model.summary()
+    model.compile(optimizer, mdn_loss)
     N = np.asarray(X_full).shape[0]
     
     dataset = tf.data.Dataset \
@@ -133,3 +137,4 @@ if __name__ == "__main__":
             losses.append(loss)
         if i % print_every == 0:
             print('Epoch {}/{}: loss {}'.format(i, EPOCHS, losses[-1]))       
+
