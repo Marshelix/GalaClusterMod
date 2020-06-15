@@ -43,7 +43,7 @@ def mdn_loss(y_true, pi, mu, var):
     out = tf.multiply(out, pi)
     out = tf.reduce_sum(out, 1, keepdims=True)
     out = -tf.math.log(out + 1e-10)
-    print(tf.reduce_mean(out))
+   # print(tf.reduce_mean(out))
     return tf.reduce_mean(out)
 
 
@@ -54,31 +54,35 @@ def train_step(model, optimizer, train_x, train_y):
         pi_, mu_, var_ = model(train_x, training=True)
         # calculate loss
         loss = mdn_loss(train_y, pi_, mu_, var_)
-        print(loss)
     # compute and apply gradients
     gradients = tape.gradient(loss, model.trainable_variables)
-    print("Gradients: {}".format(gradients))
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     return loss
 
 def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
     n, k = pi_vals.shape
+    l_out = 1
     # print('shape: ', n, k, l)
     # place holder to store the y value for each sample of each row
-    out = np.zeros((n, samples, l))
+    out = np.zeros((n, samples, l_out))
     for i in range(n):
         for j in range(samples):
             # for each sample, use pi/probs to sample the index
             # that will be used to pick up the mu and var values
             idx = np.random.choice(range(k), p=pi_vals[i])
-            for li in range(l):
+            for li in range(l_out):
                 # Draw random sample from gaussian distribution
-                out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l)], np.sqrt(var_vals[i, idx]))
+                out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
     return out    
 
+#fixed sigma activation
+# taken from https://github.com/cpmpercussion/keras-mdn-layer/blob/master/mdn/__init__.py
+def elu_plus(x):
+    return tf.keras.activations.elu(x)+1
+
 if __name__ == "__main__":
-    sample_profiles,profile_params,associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(10)
-    sample_profiles_logged = np.asarray([np.log(p) for p in sample_profiles])
+    sample_profiles,profile_params,associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(1000)
+    sample_profiles_logged = np.asarray([np.log(p) for p in sample_profiles]).astype(np.float64)
     #EinastoSim.print_params(profile_params[0])
     
     def create_input_vectors(profile_params, assoc_r):
@@ -106,23 +110,61 @@ if __name__ == "__main__":
     input = tf.keras.Input(shape=(l,))
     input_transfer_layer = tf.keras.layers.Dense(1,activation = None,dtype = tf.float64)
     layer = tf.keras.layers.Dense(50, activation='tanh', name='baselayer',dtype = tf.float64)(input)
-    mu = tf.keras.layers.Dense((k), activation=None, name='mean_layer')(layer)
+    mu = tf.keras.layers.Dense((k), activation=None, name='mean_layer',dtype = tf.float64)(layer)
     # variance (should be greater than 0 so we exponentiate it)
     var_layer = tf.keras.layers.Dense((k), activation=None, name='dense_var_layer')(layer)
-    var = tf.keras.layers.Lambda(lambda x: tf.math.exp(x), output_shape=(k,), name='variance_layer')(var_layer)
+    var = tf.keras.layers.Lambda(lambda x: tf.math.exp(x), output_shape=(k,), name='variance_layer',dtype = tf.float64)(var_layer)
     # mixing coefficient should sum to 1.0
-    pi = tf.keras.layers.Dense(k, activation='softmax', name='pi_layer')(layer)
+    pi = tf.keras.layers.Dense(k, activation='softmax', name='pi_layer',dtype = tf.float64)(layer)
 
     
     losses = []
-    EPOCHS = 2
-    print_every = int(1)
+    EPOCHS = 10000
+    print_every = int(EPOCHS/100)
     
     # Define model and optimizer
+    
+    class gdnn(tf.keras.Model):
+        def __init__(self,input_dims,output_dimensions, num_mixtures):
+            super(gdnn,self).__init__()
+            self.in_dim = input_dims
+            self.out_dim = output_dimensions
+            self.k = num_mixtures
+            #create a network of:
+            '''
+                Input layer
+                  |-Mu
+                  |
+                ->|-Sigma
+                  |
+                  |-Pi
+            '''
+            self.mu = tf.keras.layers.Dense(self.k*self.out_dim)
+            self.sigma = tf.keras.layers.Dense(self.k*self.out_dim,activation = elu_plus)
+            self.pi = tf.keras.layers.Dense(self.k)
+            self.built = False
+        def build(self,input_shape):
+            self.mu.build(input_shape)
+            self.sigma.build(input_shape)
+            self.pi.build(input_shape)
+            self.built = True
+        
+        def call(self,x):
+            xs = x.shape
+            assert xs[1] == self.in_dim,"Input to model not of correct size"
+            if not self.built:
+                self.build(xs)
+            return tf.concat([self.mu(x),self.sigma(x), self.pi(x)])
+
+        
+            
+            
+    
+    
     model = tf.keras.models.Model(input, [pi, mu, var])
-    optimizer = tf.keras.optimizers.Adam(1e-30)
+    optimizer = tf.keras.optimizers.Adam(1e-2)
     model.summary()
-    model.compile(optimizer, mdn_loss)
+    #model.compile(optimizer, mdn_loss)
     N = np.asarray(X_full).shape[0]
     
     dataset = tf.data.Dataset \
@@ -137,4 +179,18 @@ if __name__ == "__main__":
             losses.append(loss)
         if i % print_every == 0:
             print('Epoch {}/{}: loss {}'.format(i, EPOCHS, losses[-1]))       
+            #print(model.predict(train_x))
 
+    plt.figure()
+    plt.plot(losses)
+    plt.title("MDN Loss")
+    
+    
+    test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(1000)
+    t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
+    X_test = create_input_vectors(t_profile_params,t_associated_r)
+    
+    pi_test, mu_test,var_test = model.predict(np.asarray(X_test))
+    sample_preds = sample_predictions(pi_test,mu_test,var_test)
+    
+    

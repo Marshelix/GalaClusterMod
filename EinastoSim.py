@@ -80,7 +80,7 @@ def einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl,h = h,Om = Om_m, Ol = Om_l):
     rho_cd  = first_mult*second_mult*third_mult*fourth_mult
     #print("After central density")
     rhomult = rho_cd*rhocrit
-    return rhomult*np.exp(-(r/rs*(2*n)**n)**alpha) 
+    return np.abs(rhomult*np.exp(-(r/rs*(2*n)**n)**alpha)) + error_epsi
 def generate_set_einasto_profile(rmax, r_granularity, M200,z,alpha,r0,epsi,rho0,k,hz):
     profile = []
     for r in np.linspace(rmin_glob,rmax,r_granularity):
@@ -105,7 +105,10 @@ def generate_n_random_einasto_profile_maggie(num_profiles,rmax = rmax_glob,r_gra
     radii = []
     for i in range(num_profiles):
         profile,params,r = generate_random_einasto_profile_maggie(rmax,r_granularity)
-        print("Profile {} generated, length {}".format(i,profile.size))
+        infinities = np.sum([int(np.isinf(p)) for p in profile])
+        nans = np.sum([int(np.isnan(p)) for p in profile])
+        zeros = np.sum([p == 0 for p in profile]) 
+        print("Profile {} generated, length {}, Infinities: {}, NaNs: {},zeros: {}".format(i,profile.size,infinities,nans,zeros))
         profiles.append(profile)
         profile_params.append(params)
         radii.append(r)
