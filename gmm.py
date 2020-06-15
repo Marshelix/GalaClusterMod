@@ -173,24 +173,46 @@ if __name__ == "__main__":
     
     # Start training
     print('Print every {} epochs'.format(print_every))
-    for i in range(EPOCHS):
+    best_model = model
+    best_loss = np.inf
+    i = 0
+    training_bool = i in range(EPOCHS)
+    counter = 0
+    while training_bool:
         for train_x, train_y in dataset:
             loss = train_step(model, optimizer, train_x, train_y)
             losses.append(loss)
+            if loss > best_loss:
+                counter += 1
+            if loss < best_loss:
+                print("Epoch {}/{}: new best loss: {}".format(i,EPOCHS,losses[-1]))
+                best_loss = loss
+                best_model = model
+                counter = 0
         if i % print_every == 0:
-            print('Epoch {}/{}: loss {}'.format(i, EPOCHS, losses[-1]))       
-            #print(model.predict(train_x))
-
+            print('Epoch {}/{}: loss {}, Epochs since best loss {}'.format(i, EPOCHS, losses[-1],counter))       
+        i = i+1
+        training_bool = i in range(EPOCHS) and counter < 10
+    print("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
+        
     plt.figure()
     plt.plot(losses)
     plt.title("MDN Loss")
     
     
-    test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(1000)
+    test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(100)
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
     X_test = create_input_vectors(t_profile_params,t_associated_r)
     
     pi_test, mu_test,var_test = model.predict(np.asarray(X_test))
     sample_preds = sample_predictions(pi_test,mu_test,var_test)
     
+    first_profile_sample = sample_preds[:100,:10,0]
+    first_test_prof = t_sample_profiles_logged[0]
+    plt.figure()
+    plt.plot(t_associated_r[0],first_test_prof,label = "True profile")
+    for j in range(10):
+        plt.plot(t_associated_r[0],first_profile_sample[:,j], label = "Sample {}".format(j))
+    plt.legend()
+    plt.title("Profile parameters: ".format(t_profile_params[0]))
     
