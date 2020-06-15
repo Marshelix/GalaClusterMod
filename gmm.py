@@ -200,7 +200,7 @@ if __name__ == "__main__":
                 best_model = tf.keras.models.clone_model(model)
                 counter = 0
         if i % print_every == 0:
-            print('Epoch {}/{}: loss {}, Epochs since best loss {}'.format(i, EPOCHS, losses[-1],counter))       
+            print('Epoch {}/{}: loss {}, Epochs since best loss: {}'.format(i, EPOCHS, losses[-1],counter))       
         i = i+1
         training_bool = (i in range(EPOCHS)) and (counter < counter_max)
     print("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
@@ -208,6 +208,8 @@ if __name__ == "__main__":
     plt.figure()
     plt.plot(losses)
     plt.title("MDN Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("NLL Loss")
     
     
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(100)
@@ -224,6 +226,6 @@ if __name__ == "__main__":
     for j in range(10):
         plt.plot(t_associated_r[0],first_profile_sample[:,j], label = "Sample {}".format(j))
     plt.legend()
-    plt.title(EinastoSim.print_params_maggie(t_profile_params[0]))
+    plt.title(EinastoSim.print_params_maggie(t_profile_params[0]).replace("\t",""))
     plt.xlabel("Radius [Mpc]")
     plt.ylabel("log({}) []".format(u"\u03C1"))
