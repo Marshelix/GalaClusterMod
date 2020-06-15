@@ -71,8 +71,10 @@ def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
             # that will be used to pick up the mu and var values
             idx = np.random.choice(range(k), p=pi_vals[i])
             for li in range(l_out):
+                for kdist in range(k):
+                    out[i,j,li] += pi_vals[i][kdist]*np.random.normal(mu_vals[i,kdist*(li+l_out)],np.sqrt(var_vals[i,kdist]))
                 # Draw random sample from gaussian distribution
-                out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
+                #out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
     return out    
 
 #fixed sigma activation
@@ -175,26 +177,34 @@ if __name__ == "__main__":
     print('Print every {} epochs'.format(print_every))
     best_model = model
     best_loss = np.inf
+    min_diff = 100  #differential loss
     i = 0
     training_bool = i in range(EPOCHS)
     counter = 0
+    counter_max = 100
     while training_bool:
         for train_x, train_y in dataset:
             loss = train_step(model, optimizer, train_x, train_y)
             losses.append(loss)
             if loss > best_loss:
                 counter += 1
+            
+            if len(losses) > 1:
+                diff = losses[-1] - losses[-2]
+                if diff < min_diff:
+                    min_diff = diff
+                    counter = 0 #keep going if differential low enough, even if loss > min
             if loss < best_loss:
                 print("Epoch {}/{}: new best loss: {}".format(i,EPOCHS,losses[-1]))
                 best_loss = loss
-                best_model = model
+                best_model = tf.keras.models.clone_model(model)
                 counter = 0
         if i % print_every == 0:
             print('Epoch {}/{}: loss {}, Epochs since best loss {}'.format(i, EPOCHS, losses[-1],counter))       
         i = i+1
-        training_bool = i in range(EPOCHS) and counter < 10
+        training_bool = (i in range(EPOCHS)) and (counter < counter_max)
     print("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
-        
+    
     plt.figure()
     plt.plot(losses)
     plt.title("MDN Loss")
@@ -204,7 +214,7 @@ if __name__ == "__main__":
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
     X_test = create_input_vectors(t_profile_params,t_associated_r)
     
-    pi_test, mu_test,var_test = model.predict(np.asarray(X_test))
+    pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
     sample_preds = sample_predictions(pi_test,mu_test,var_test)
     
     first_profile_sample = sample_preds[:100,:10,0]
@@ -214,7 +224,6 @@ if __name__ == "__main__":
     for j in range(10):
         plt.plot(t_associated_r[0],first_profile_sample[:,j], label = "Sample {}".format(j))
     plt.legend()
-    plt.title("Profile parameters: {}".format(t_profile_params[0]))
+    plt.title(EinastoSim.print_params_maggie(t_profile_params[0]))
     plt.xlabel("Radius [Mpc]")
     plt.ylabel("log({}) []".format(u"\u03C1"))
-    

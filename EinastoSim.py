@@ -25,7 +25,7 @@ km2Mpc = km2Lyr*Lyr2MPc
 h = 0.7 #cosmological parameter
 rmax_glob = 52850*Lyr2MPc
 Mpc = 3.087*10**(16)
-rmin_glob = 0.01*Mpc
+rmin_glob = 0.01*rmax_glob
 r_gran_max = int(100)
 
 a0g = 1
@@ -113,6 +113,17 @@ def generate_n_random_einasto_profile_maggie(num_profiles,rmax = rmax_glob,r_gra
         profile_params.append(params)
         radii.append(r)
     return profiles, profile_params,radii
+
+def print_params_maggie(parameters):
+    assert len(parameters) == 5, "Wrong amount of parameters inserted"
+    M = parameters[0]
+    cdelta = parameters[1]
+    delta = parameters[2]
+    alpha = parameters[3]
+    zl = parameters[4]
+    profile_string = "Parameters: \n \t M = {} Ms \n\t cdelta =  {} \n \t delta = {} \n \t alpha = {} \n \t z = {}".format(M,cdelta,delta,alpha,zl)
+    print(profile_string)
+    return profile_string    
 
 
 def generate_random_einasto_profile(rmax,r_granularity = r_gran_max):
