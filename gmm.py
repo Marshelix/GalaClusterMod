@@ -214,5 +214,7 @@ if __name__ == "__main__":
     for j in range(10):
         plt.plot(t_associated_r[0],first_profile_sample[:,j], label = "Sample {}".format(j))
     plt.legend()
-    plt.title("Profile parameters: ".format(t_profile_params[0]))
+    plt.title("Profile parameters: {}".format(t_profile_params[0]))
+    plt.xlabel("Radius [Mpc]")
+    plt.ylabel("log({}) []".format(u"\u03C1"))
     
