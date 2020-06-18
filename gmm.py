@@ -164,7 +164,7 @@ if __name__ == "__main__":
     
     
     model = tf.keras.models.Model(input, [pi, mu, var])
-    optimizer = tf.keras.optimizers.Adam(1e-2)
+    optimizer = tf.keras.optimizers.Adam()
     model.summary()
     #model.compile(optimizer, mdn_loss)
     N = np.asarray(X_full).shape[0]
@@ -177,7 +177,7 @@ if __name__ == "__main__":
     print('Print every {} epochs'.format(print_every))
     best_model = model
     best_loss = np.inf
-    min_diff = 100  #differential loss
+    max_diff = 0.0  #differential loss
     i = 0
     training_bool = i in range(EPOCHS)
     counter = 0
@@ -186,21 +186,25 @@ if __name__ == "__main__":
         for train_x, train_y in dataset:
             loss = train_step(model, optimizer, train_x, train_y)
             losses.append(loss)
+            likelihood = np.exp(-loss.numpy())
             if loss > best_loss:
                 counter += 1
             
             if len(losses) > 1:
                 diff = losses[-1] - losses[-2]
-                if diff < min_diff:
-                    min_diff = diff
-                    counter = 0 #keep going if differential low enough, even if loss > min
+                if diff < max_diff:
+                    counter += 1
+                if diff > max_diff:
+                    max_diff = diff
+                    counter -= 1 #keep going if differential low enough, even if loss > min
+                    counter = max([0,counter]) #keep > 0
             if loss < best_loss:
-                print("Epoch {}/{}: new best loss: {}".format(i,EPOCHS,losses[-1]))
+                print("Epoch {}/{}: new best loss: {}; Likelihood: {} | Counter: {}".format(i,EPOCHS,losses[-1],likelihood, counter))
                 best_loss = loss
                 best_model = tf.keras.models.clone_model(model)
                 counter = 0
         if i % print_every == 0:
-            print('Epoch {}/{}: loss {}, Epochs since best loss: {}'.format(i, EPOCHS, losses[-1],counter))       
+            print('Epoch {}/{}: loss {}, Epochs since best loss: {}; Likelihood: {}'.format(i, EPOCHS, losses[-1],counter,likelihood))       
         i = i+1
         training_bool = (i in range(EPOCHS)) and (counter < counter_max)
     print("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
