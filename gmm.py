@@ -77,6 +77,23 @@ def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
                 #out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
     return out    
 
+def rmse_error(y_true, y_sample):
+    '''
+    Generates an average MSE fit between a true distribution and a sequence of samples
+    '''
+    if np.asarray(y_true.shape).size > 1:
+        n,l = y_true.shape
+    else:
+        n = len(y_true)
+    n2, num_samples,lout = y_sample.shape
+    assert n2 == n, "Sample has different granularity from original sequence"
+    error = 0
+    for c_sample in range(num_samples):
+        for i in range(n):
+            error += (y_true[n] - y_sample[n,c_sample])**2
+    error /= num_samples
+    return error
+
 #fixed sigma activation
 # taken from https://github.com/cpmpercussion/keras-mdn-layer/blob/master/mdn/__init__.py
 def elu_plus(x):
@@ -164,7 +181,7 @@ if __name__ == "__main__":
     
     
     model = tf.keras.models.Model(input, [pi, mu, var])
-    optimizer = tf.keras.optimizers.Adam()
+    optimizer = tf.keras.optimizers.Adam(1e-3)
     model.summary()
     #model.compile(optimizer, mdn_loss)
     N = np.asarray(X_full).shape[0]
@@ -194,7 +211,7 @@ if __name__ == "__main__":
                 diff = losses[-1] - losses[-2]
                 if diff < max_diff:
                     counter += 1
-                if diff > max_diff:
+                elif diff > max_diff:
                     max_diff = diff
                     counter -= 1 #keep going if differential low enough, even if loss > min
                     counter = max([0,counter]) #keep > 0
