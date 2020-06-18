@@ -71,10 +71,10 @@ def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
             # that will be used to pick up the mu and var values
             idx = np.random.choice(range(k), p=pi_vals[i])
             for li in range(l_out):
-                for kdist in range(k):
-                    out[i,j,li] += pi_vals[i][kdist]*np.random.normal(mu_vals[i,kdist*(li+l_out)],np.sqrt(var_vals[i,kdist]))
+                #for kdist in range(k):
+                #    out[i,j,li] += pi_vals[i][kdist]*np.random.normal(mu_vals[i,kdist*(li+l_out)],np.sqrt(var_vals[i,kdist]))
                 # Draw random sample from gaussian distribution
-                #out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
+                out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
     return out    
 
 def rmse_error(y_true, y_sample):
@@ -199,6 +199,8 @@ if __name__ == "__main__":
     training_bool = i in range(EPOCHS)
     counter = 0
     counter_max = 100
+    counters = []
+    
     while training_bool:
         for train_x, train_y in dataset:
             loss = train_step(model, optimizer, train_x, train_y)
@@ -223,6 +225,7 @@ if __name__ == "__main__":
         if i % print_every == 0:
             print('Epoch {}/{}: loss {}, Epochs since best loss: {}; Likelihood: {}'.format(i, EPOCHS, losses[-1],counter,likelihood))       
         i = i+1
+        counters.append(counter)
         training_bool = (i in range(EPOCHS)) and (counter < counter_max)
     print("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
     
@@ -232,6 +235,12 @@ if __name__ == "__main__":
     plt.xlabel("Epoch")
     plt.ylabel("NLL Loss")
     
+    
+    plt.figure()
+    plt.plot(counters)
+    plt.title("Counter values")
+    plt.xlabel("Epoch")
+    plt.ylabel("Counter")
     
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(100)
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
