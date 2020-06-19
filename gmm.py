@@ -19,7 +19,22 @@ import h5py
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import tensorflow as tf
+#import tensorflow_addons as tfa #AdamW
 from copy import deepcopy
+import sys
+import  logging
+
+'''
+Logging: Taken from https://stackoverflow.com/a/13733863
+'''
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("logfile.log"),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
 
 def calc_pdf(y, mu, var):
     """Calculate component density"""
@@ -43,7 +58,7 @@ def mdn_loss(y_true, pi, mu, var):
     out = tf.multiply(out, pi)
     out = tf.reduce_sum(out, 1, keepdims=True)
     out = -tf.math.log(out + 1e-10)
-   # print(tf.reduce_mean(out))
+   # logging.debug(tf.reduce_mean(out))
     return tf.reduce_mean(out)
 
 
@@ -62,7 +77,6 @@ def train_step(model, optimizer, train_x, train_y):
 def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
     n, k = pi_vals.shape
     l_out = 1
-    # print('shape: ', n, k, l)
     # place holder to store the y value for each sample of each row
     out = np.zeros((n, samples, l_out))
     for i in range(n):
@@ -77,7 +91,7 @@ def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
                 out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
     return out    
 
-def rmse_error(y_true, y_sample):
+def mse_error(y_true, y_sample):
     '''
     Generates an average MSE fit between a true distribution and a sequence of samples
     '''
@@ -85,12 +99,9 @@ def rmse_error(y_true, y_sample):
         n,l = y_true.shape
     else:
         n = len(y_true)
-    n2, num_samples,lout = y_sample.shape
+    n2, num_samples = y_sample.shape
     assert n2 == n, "Sample has different granularity from original sequence"
-    error = 0
-    for c_sample in range(num_samples):
-        for i in range(n):
-            error += (y_true[n] - y_sample[n,c_sample])**2
+    error = np.sum([np.dot(np.transpose(y_true-y_sample[:,k]),y_true-y_sample[:,k]) for k in range(num_samples)])
     error /= num_samples
     return error
 
@@ -107,7 +118,7 @@ if __name__ == "__main__":
     def create_input_vectors(profile_params, assoc_r):
         assert len(assoc_r) == len(profile_params), "mismatch between parameter and r lengths"
         N = len(assoc_r)
-        print("Generating {} elements from {} pairs".format(len(assoc_r[0])*N,N))
+        logging.info("Generating {} elements from {} pairs".format(len(assoc_r[0])*N,N))
         input_vecs = []
         for i in range(N):
             base_vec = profile_params[i].copy()
@@ -181,7 +192,7 @@ if __name__ == "__main__":
     
     
     model = tf.keras.models.Model(input, [pi, mu, var])
-    optimizer = tf.keras.optimizers.Adam(1e-3)
+    optimizer = tf.keras.optimizers.SGD(1e-3,1e-2)#tf.keras.optimizers.Adam(1e-3)
     model.summary()
     #model.compile(optimizer, mdn_loss)
     N = np.asarray(X_full).shape[0]
@@ -191,7 +202,7 @@ if __name__ == "__main__":
     .shuffle(N).batch(N)
     
     # Start training
-    print('Print every {} epochs'.format(print_every))
+    logging.debug('Print every {} epochs'.format(print_every))
     best_model = model
     best_loss = np.inf
     max_diff = 0.0  #differential loss
@@ -201,6 +212,16 @@ if __name__ == "__main__":
     counter_max = 100
     counters = []
     
+    MSEs = []
+    train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
+    ttp_logged = np.asarray([np.log(p) for p in train_testing_profile]).astype(np.float64)
+    X_tt = create_input_vectors(tt_p_para,t_a_r)
+    
+    overlap_ratios = []
+    num_samples = 10
+    likelihood_minimum = 0.9
+    loss_maximum = -np.log(likelihood_minimum)
+    diff = 0
     while training_bool:
         for train_x, train_y in dataset:
             loss = train_step(model, optimizer, train_x, train_y)
@@ -218,16 +239,36 @@ if __name__ == "__main__":
                     counter -= 1 #keep going if differential low enough, even if loss > min
                     counter = max([0,counter]) #keep > 0
             if loss < best_loss:
-                print("Epoch {}/{}: new best loss: {}; Likelihood: {} | Counter: {}".format(i,EPOCHS,losses[-1],likelihood, counter))
+                logging.info("Epoch {}/{}: new best loss: {}; Likelihood: {} | Counter: {}".format(i,EPOCHS,losses[-1],likelihood, counter))
                 best_loss = loss
                 best_model = tf.keras.models.clone_model(model)
                 counter = 0
-        if i % print_every == 0:
-            print('Epoch {}/{}: loss {}, Epochs since best loss: {}; Likelihood: {}'.format(i, EPOCHS, losses[-1],counter,likelihood))       
-        i = i+1
+        #calculate mse
+        pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
+        sample_preds = sample_predictions(pi_tt,mu_tt,var_tt,num_samples)
+        profile_sample = sample_preds[:,:,0]
+        mse_error_profiles = mse_error(ttp_logged[0],profile_sample)
+        MSEs.append(mse_error_profiles)
+        
+        #calculate overlap
+        source_overlap = np.dot(np.transpose(ttp_logged[0]),ttp_logged[0]) #ignore constant multiplier
+        generation_overlaps = [np.dot(np.transpose(profile_sample[:,k]),profile_sample[:,k]) for k in range(num_samples)]
+        overlap_ratio = source_overlap/np.mean(generation_overlaps)
+        overlap_ratios.append(overlap_ratio)
+        
+        
         counters.append(counter)
-        training_bool = (i in range(EPOCHS)) and (counter < counter_max)
-    print("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
+        
+        training_bool = i in range(EPOCHS)
+        
+        loss_break = (best_loss.numpy() < loss_maximum) and (np.exp(-best_loss.numpy()) > likelihood_minimum) #equivalent frankly, just redundant
+        loss_break = loss_break or (diff < 0) 
+        training_bool = training_bool or (not loss_break and (counter < counter_max))
+        if i % print_every == 0:
+            logging.info('Epoch {}/{}: loss {}, Epochs since best loss: {}; Likelihood: {}; MSE: {}; overlap: {}'.format(i, EPOCHS, losses[-1],counter,likelihood,mse_error_profiles, overlap_ratio))       
+        i = i+1
+        
+    logging.info("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
     
     plt.figure()
     plt.plot(losses)
@@ -242,7 +283,19 @@ if __name__ == "__main__":
     plt.xlabel("Epoch")
     plt.ylabel("Counter")
     
-    test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(100)
+    plt.figure()
+    plt.plot(MSEs)
+    plt.title("MSE")
+    plt.xlabel("Epoch")
+    plt.ylabel("Pseudo MSE")
+    
+    plt.figure()
+    plt.plot(overlap_ratios)
+    plt.title("Profile Overlap Ratios true/generated")
+    plt.xlabel("Epoch")
+    plt.ylabel("Overlap")
+    
+    test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
     X_test = create_input_vectors(t_profile_params,t_associated_r)
     
