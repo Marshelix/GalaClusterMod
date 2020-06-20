@@ -23,7 +23,9 @@ import tensorflow as tf
 from copy import deepcopy
 import sys
 import  logging
-
+from datetime import datetime
+np.random.seed(42)
+tf.random.set_seed(42)
 '''
 Logging: Taken from https://stackoverflow.com/a/13733863
 '''
@@ -31,10 +33,12 @@ logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("logfile.log"),
+        logging.FileHandler("logfile_{}_{}.log".format(datetime.today().day,datetime.today().month)),
         logging.StreamHandler(sys.stdout)
     ]
 )
+'''
+'''
 
 def calc_pdf(y, mu, var):
     """Calculate component density"""
@@ -267,9 +271,9 @@ if __name__ == "__main__":
         if i % print_every == 0:
             logging.info('Epoch {}/{}: loss {}, Epochs since best loss: {}; Likelihood: {}; MSE: {}; overlap: {}'.format(i, EPOCHS, losses[-1],counter,likelihood,mse_error_profiles, overlap_ratio))       
         i = i+1
-        
-    logging.info("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
     
+    logging.info("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
+    logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
     plt.figure()
     plt.plot(losses)
     plt.title("MDN Loss")
