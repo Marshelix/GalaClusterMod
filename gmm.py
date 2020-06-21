@@ -26,14 +26,19 @@ import  logging
 from datetime import datetime
 np.random.seed(42)
 tf.random.set_seed(42)
+plt.close("all")
 '''
 Logging: Taken from https://stackoverflow.com/a/13733863
 '''
+
+now = datetime.now()
+d_string = now.strftime("%d/%m/%Y, %H:%M:%S")
+
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
-        logging.FileHandler("logfile_{}_{}.log".format(datetime.today().day,datetime.today().month)),
+        logging.FileHandler("logfile_{}_{}.log".format(now.day,now.month)),
         logging.StreamHandler(sys.stdout)
     ]
 )
@@ -115,7 +120,14 @@ def elu_plus(x):
     return tf.keras.activations.elu(x)+1
 
 if __name__ == "__main__":
-    sample_profiles,profile_params,associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(1000)
+    
+    
+    logging.info("="*20)
+    logging.info("Starting new run at {}".format(d_string))
+    logging.info("="*20)
+    num_profile_train = 2000
+    logging.info("Generating {} Profiles for training".format(num_profile_train))    
+    sample_profiles,profile_params,associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(num_profile_train)
     sample_profiles_logged = np.asarray([np.log(p) for p in sample_profiles]).astype(np.float64)
     #EinastoSim.print_params(profile_params[0])
     
@@ -196,7 +208,10 @@ if __name__ == "__main__":
     
     
     model = tf.keras.models.Model(input, [pi, mu, var])
-    optimizer = tf.keras.optimizers.SGD(1e-3,1e-2)#tf.keras.optimizers.Adam(1e-3)
+    lr = 1e-4
+    wd = 1e-2
+    logging.info("Learning Parameters: lr = {} \t wd = {}".format(lr,wd))
+    optimizer = tf.keras.optimizers.SGD(lr,wd)#tf.keras.optimizers.Adam(1e-3)
     model.summary()
     #model.compile(optimizer, mdn_loss)
     N = np.asarray(X_full).shape[0]
@@ -274,45 +289,59 @@ if __name__ == "__main__":
     
     logging.info("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
     logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
+    plot_folder = ".\\plots\\"
+    if not os.path.exists(plot_folder):
+        os.makedirs(plot_folder)
+    logging.info("Saving to plot folder: {}".format(plot_folder))
     plt.figure()
     plt.plot(losses)
     plt.title("MDN Loss")
     plt.xlabel("Epoch")
     plt.ylabel("NLL Loss")
-    
+    plt.savefig(plot_folder+"Losses_{}_{}_{}.png".format(now.hour,now.day,now.month))
     
     plt.figure()
     plt.plot(counters)
     plt.title("Counter values")
     plt.xlabel("Epoch")
     plt.ylabel("Counter")
+    plt.savefig(plot_folder+"Counter_{}_{}_{}.png".format(now.hour,now.day,now.month))
     
     plt.figure()
     plt.plot(MSEs)
     plt.title("MSE")
     plt.xlabel("Epoch")
     plt.ylabel("Pseudo MSE")
+    plt.savefig(plot_folder+"MSE_{}_{}_{}.png".format(now.hour,now.day,now.month))
     
     plt.figure()
     plt.plot(overlap_ratios)
     plt.title("Profile Overlap Ratios true/generated")
     plt.xlabel("Epoch")
     plt.ylabel("Overlap")
+    plt.savefig(plot_folder+"Overlap_{}_{}_{}.png".format(now.hour,now.day,now.month))
     
-    test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
+    n_test_profiles = 10
+    test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
     X_test = create_input_vectors(t_profile_params,t_associated_r)
     
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
     sample_preds = sample_predictions(pi_test,mu_test,var_test)
     
-    first_profile_sample = sample_preds[:100,:10,0]
-    first_test_prof = t_sample_profiles_logged[0]
-    plt.figure()
-    plt.plot(t_associated_r[0],first_test_prof,label = "True profile")
-    for j in range(10):
-        plt.plot(t_associated_r[0],first_profile_sample[:,j], label = "Sample {}".format(j))
-    plt.legend()
-    plt.title(EinastoSim.print_params_maggie(t_profile_params[0]).replace("\t",""))
-    plt.xlabel("Radius [Mpc]")
-    plt.ylabel("log({}) []".format(u"\u03C1"))
+    for i in range(n_test_profiles):
+        profile_sample = sample_preds[(i)*100:(i+1)*100,:10,0]
+        test_prof = t_sample_profiles_logged[i]
+        plt.figure()
+        plt.plot(t_associated_r[i],test_prof,label = "True profile")
+        
+        logging.debug("Parameters for {}: {}".format(i,EinastoSim.print_params_maggie(t_profile_params[i])))
+        for j in range(10):
+            plt.plot(t_associated_r[i],profile_sample[:,j], label = "Sample {}".format(j))
+            plt.legend()
+            plt.title(EinastoSim.print_params_maggie(t_profile_params[i]).replace("\t",""))
+            plt.xlabel("Radius [Mpc]")
+            plt.ylabel("log({}) []".format(u"\u03C1"))
+            plt.savefig(plot_folder+"Sample_profiles_{}_{}_{}_{}.png".format(j,now.hour,now.day,now.month))
+    
+    
