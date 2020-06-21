@@ -272,6 +272,7 @@ if __name__ == "__main__":
                 logging.info("Epoch {}/{}: Elapsed Time: {}: new best loss: {}; Likelihood: {} | Counter: {}".format(i,EPOCHS,datetime.now()-train_start,losses[-1],likelihood, counter))
                 best_loss = loss
                 best_model = tf.keras.models.clone_model(model)
+                best_model.save(".\\models\\best_model")
                 counter = 0
         #calculate mse
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
@@ -301,6 +302,9 @@ if __name__ == "__main__":
     logging.info("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
     logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
     plot_folder = ".\\plots\\Run_{}\\".format(run_id)
+    logging.info("Saving model")
+    best_model.save(".\\models\\best_model")
+    
     if not os.path.exists(plot_folder):
         os.makedirs(plot_folder)
     logging.info("Saving to plot folder: {}".format(plot_folder))
