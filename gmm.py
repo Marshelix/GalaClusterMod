@@ -120,15 +120,24 @@ def elu_plus(x):
     return tf.keras.activations.elu(x)+1
 
 if __name__ == "__main__":
-    
-    
+    run_file = "./runID.txt"
+    run_id = -1
+    if not os.path.isfile(run_file):
+        with open(run_file,"w") as f:
+            run_id = 1
+            f.write(str(run_id))
+            
+    else:
+        with open(run_file,"r") as f:
+            run_id = int(f.read())
     logging.info("="*20)
-    logging.info("Starting new run at {}".format(d_string))
+    logging.info("Starting new run #{} at {}".format(run_id,d_string))
     logging.info("="*20)
     num_profile_train = 2000
     logging.info("Generating {} Profiles for training".format(num_profile_train))    
     sample_profiles,profile_params,associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(num_profile_train)
-    sample_profiles_logged = np.asarray([np.log(p) for p in sample_profiles]).astype(np.float64)
+    # remove log as test
+    sample_profiles_logged = np.asarray([p for p in sample_profiles]).astype(np.float64)
     #EinastoSim.print_params(profile_params[0])
     
     def create_input_vectors(profile_params, assoc_r):
@@ -233,7 +242,7 @@ if __name__ == "__main__":
     
     MSEs = []
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
-    ttp_logged = np.asarray([np.log(p) for p in train_testing_profile]).astype(np.float64)
+    ttp_logged = np.asarray([p for p in train_testing_profile]).astype(np.float64)
     X_tt = create_input_vectors(tt_p_para,t_a_r)
     
     overlap_ratios = []
@@ -241,6 +250,8 @@ if __name__ == "__main__":
     likelihood_minimum = 0.9
     loss_maximum = -np.log(likelihood_minimum)
     diff = 0
+    train_start = datetime.now()
+    logging.info("Starting training at: {}".format(train_start))
     while training_bool:
         for train_x, train_y in dataset:
             loss = train_step(model, optimizer, train_x, train_y)
@@ -258,7 +269,7 @@ if __name__ == "__main__":
                     counter -= 1 #keep going if differential low enough, even if loss > min
                     counter = max([0,counter]) #keep > 0
             if loss < best_loss:
-                logging.info("Epoch {}/{}: new best loss: {}; Likelihood: {} | Counter: {}".format(i,EPOCHS,losses[-1],likelihood, counter))
+                logging.info("Epoch {}/{}: Elapsed Time: {}: new best loss: {}; Likelihood: {} | Counter: {}".format(i,EPOCHS,datetime.now()-train_start,losses[-1],likelihood, counter))
                 best_loss = loss
                 best_model = tf.keras.models.clone_model(model)
                 counter = 0
@@ -282,17 +293,19 @@ if __name__ == "__main__":
         
         loss_break = (best_loss.numpy() < loss_maximum) and (np.exp(-best_loss.numpy()) > likelihood_minimum) #equivalent frankly, just redundant
         loss_break = loss_break or (diff < 0) 
-        training_bool = training_bool or (not loss_break and (counter < counter_max))
+        training_bool = (training_bool or (not loss_break)) and (counter < counter_max)
         if i % print_every == 0:
-            logging.info('Epoch {}/{}: loss {}, Epochs since best loss: {}; Likelihood: {}; MSE: {}; overlap: {}'.format(i, EPOCHS, losses[-1],counter,likelihood,mse_error_profiles, overlap_ratio))       
+            logging.info('Epoch {}/{}: Elapsed Time: {}; loss {}, Epochs since best loss: {}; Likelihood: {}; MSE: {}; overlap: {}'.format(i, EPOCHS,datetime.now() - train_start, losses[-1],counter,likelihood,mse_error_profiles, overlap_ratio))       
         i = i+1
     
     logging.info("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
     logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
-    plot_folder = ".\\plots\\"
+    plot_folder = ".\\plots\\Run_{}\\".format(run_id)
     if not os.path.exists(plot_folder):
         os.makedirs(plot_folder)
     logging.info("Saving to plot folder: {}".format(plot_folder))
+    
+    now = datetime.now()
     plt.figure()
     plt.plot(losses)
     plt.title("MDN Loss")
@@ -323,7 +336,7 @@ if __name__ == "__main__":
     
     n_test_profiles = 10
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
-    t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
+    t_sample_profiles_logged = np.asarray([p for p in test_profiles]).astype(np.float64)
     X_test = create_input_vectors(t_profile_params,t_associated_r)
     
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
@@ -342,6 +355,7 @@ if __name__ == "__main__":
             plt.title(EinastoSim.print_params_maggie(t_profile_params[i]).replace("\t",""))
             plt.xlabel("Radius [Mpc]")
             plt.ylabel("log({}) []".format(u"\u03C1"))
-            plt.savefig(plot_folder+"Sample_profiles_{}_{}_{}_{}.png".format(j,now.hour,now.day,now.month))
+            plt.savefig(plot_folder+"Sample_profiles_{}_{}_{}_{}_{}.png".format(run_id,j,now.hour,now.day,now.month))
     
-    
+    with open(run_file,"w") as f:
+        f.write(run_id +1)
