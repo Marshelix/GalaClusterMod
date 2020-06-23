@@ -20,6 +20,7 @@ import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 import tensorflow as tf
 #import tensorflow_addons as tfa #AdamW
+import tensorflow_probability as tfp#normal dist
 from copy import deepcopy
 import sys
 import  logging
@@ -35,7 +36,7 @@ now = datetime.now()
 d_string = now.strftime("%d/%m/%Y, %H:%M:%S")
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.FileHandler("logfile_{}_{}.log".format(now.day,now.month)),
@@ -61,6 +62,7 @@ def mdn_loss(y_true, pi, mu, var):
     The eager mode in tensorflow 2.0 makes is extremely easy to write 
     functions like these. It feels a lot more pythonic to me.
     """
+    
     #throw away first few y values
     out = calc_pdf(y_true, mu, var)
     # multiply with each pi and sum it
@@ -76,29 +78,65 @@ def train_step(model, optimizer, train_x, train_y):
     # GradientTape: Trace operations to compute gradients
     with tf.GradientTape() as tape:
         pi_, mu_, var_ = model(train_x, training=True)
+        print(pi_,mu_,var_)
         # calculate loss
-        loss = mdn_loss(train_y, pi_, mu_, var_)
+        sample = sample_predictions(pi_,mu_,var_,1)[:,0]
+        loss = tf.losses.mean_absolute_error(train_y,sample)#mdn_loss(train_y, pi_, mu_, var_)
     # compute and apply gradients
     gradients = tape.gradient(loss, model.trainable_variables)
     optimizer.apply_gradients(zip(gradients, model.trainable_variables))
     return loss
-
+@tf.function
+def sample_predictions_tensorflow(pi_,mu_,var_,samples = 10):
+    '''
+    Implement the generation of samples
+    '''
+    n,k = pi_.shape
+    out_dimensions = 1
+    out = tf.zeros((n,samples,out_dimensions),dtype = tf.float64)
+    out_l = tf.unstack(out)
+    for i in range(n):
+        for j in range(samples):
+            for li in range(out_dimensions):
+                for kdist in range(k):
+                    loc = mu_[i,kdist*(li+out_dimensions)]
+                    scale = tf.sqrt(var_[i,kdist])
+                    dist = tfp.distributions.normal.Normal(loc,scale)
+                    out_l[i][j][li] += pi_[i][kdist]*dist.sample(1)
+    return tf.stack(out_l)
+@tf.function
 def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
     n, k = pi_vals.shape
     l_out = 1
+    
+    #pi_vals = pi_vals.numpy()
+    #mu_vals = mu_vals.numpy()
+    #var_vals = var_vals.numpy()
     # place holder to store the y value for each sample of each row
     out = np.zeros((n, samples, l_out))
     for i in range(n):
         for j in range(samples):
             # for each sample, use pi/probs to sample the index
             # that will be used to pick up the mu and var values
-            idx = np.random.choice(range(k), p=pi_vals[i])
+            #idx = np.random.choice(range(k), p=probs)
             for li in range(l_out):
-                #for kdist in range(k):
-                #    out[i,j,li] += pi_vals[i][kdist]*np.random.normal(mu_vals[i,kdist*(li+l_out)],np.sqrt(var_vals[i,kdist]))
+                for kdist in range(k):
+                    # error at this step, cannot convert a symbolic tensor to a numpy array
+                    multiplier = pi_vals[i][kdist]
+                    loc = mu_vals[i,kdist*(li+l_out)]
+                    std = np.sqrt(var_vals[i][kdist])
+                    
+                    out[i,j,li] += multiplier*np.random.normal(loc,std)
                 # Draw random sample from gaussian distribution
-                out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
+                #out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
     return out    
+
+
+'''
+TODO: 
+      #redesign train_step
+      #input square error
+'''
 
 def mse_error(y_true, y_sample):
     '''
@@ -113,6 +151,9 @@ def mse_error(y_true, y_sample):
     error = np.sum([np.dot(np.transpose(y_true-y_sample[:,k]),y_true-y_sample[:,k]) for k in range(num_samples)])
     error /= num_samples
     return error
+
+
+
 
 #fixed sigma activation
 # taken from https://github.com/cpmpercussion/keras-mdn-layer/blob/master/mdn/__init__.py
@@ -136,8 +177,10 @@ if __name__ == "__main__":
     num_profile_train = 2000
     logging.info("Generating {} Profiles for training".format(num_profile_train))    
     sample_profiles,profile_params,associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(num_profile_train)
+    
+    logging.info("Running Logged Profiles.")
     # remove log as test
-    sample_profiles_logged = np.asarray([p for p in sample_profiles]).astype(np.float64)
+    sample_profiles_logged = np.asarray([np.log(p) for p in sample_profiles]).astype(np.float64)
     #EinastoSim.print_params(profile_params[0])
     
     def create_input_vectors(profile_params, assoc_r):
@@ -218,7 +261,7 @@ if __name__ == "__main__":
     
     model = tf.keras.models.Model(input, [pi, mu, var])
     lr = 1e-4
-    wd = 1e-2
+    wd = 1e-5
     logging.info("Learning Parameters: lr = {} \t wd = {}".format(lr,wd))
     optimizer = tf.keras.optimizers.SGD(lr,wd)#tf.keras.optimizers.Adam(1e-3)
     model.summary()
@@ -242,7 +285,7 @@ if __name__ == "__main__":
     
     MSEs = []
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
-    ttp_logged = np.asarray([p for p in train_testing_profile]).astype(np.float64)
+    ttp_logged = np.asarray([np.log(p) for p in train_testing_profile]).astype(np.float64)
     X_tt = create_input_vectors(tt_p_para,t_a_r)
     
     overlap_ratios = []
@@ -254,7 +297,18 @@ if __name__ == "__main__":
     logging.info("Starting training at: {}".format(train_start))
     while training_bool:
         for train_x, train_y in dataset:
-            loss = train_step(model, optimizer, train_x, train_y)
+            with tf.GradientTape() as tape:
+                pi_, mu_, var_ = model(train_x,training = True)
+                #print(pi_,mu_,var_)
+                # calculate loss
+                sample = sample_predictions(pi_,mu_,var_,1)[:,0]
+                loss = tf.losses.mean_absolute_error(train_y,sample)
+                #mdn_loss(train_y, pi_, mu_, var_)
+            # compute and apply gradients
+            gradients = tape.gradient(loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+            
+            #loss = train_step(model, optimizer,train_x,train_y)
             losses.append(loss)
             likelihood = np.exp(-loss.numpy())
             if loss > best_loss:
@@ -272,7 +326,7 @@ if __name__ == "__main__":
                 logging.info("Epoch {}/{}: Elapsed Time: {}: new best loss: {}; Likelihood: {} | Counter: {}".format(i,EPOCHS,datetime.now()-train_start,losses[-1],likelihood, counter))
                 best_loss = loss
                 best_model = tf.keras.models.clone_model(model)
-                best_model.save(".\\models\\best_model")
+                #best_model.save(".\\models\\best_model")
                 counter = 0
         #calculate mse
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
@@ -302,7 +356,7 @@ if __name__ == "__main__":
     logging.info("Training completed after {}/{} epochs. Counter: {}:: Best Loss: {}".format(i, EPOCHS, counter, best_loss))
     logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
     plot_folder = ".\\plots\\Run_{}\\".format(run_id)
-    logging.info("Saving model")
+    logging.info("Saving best model")
     best_model.save(".\\models\\best_model")
     
     if not os.path.exists(plot_folder):
@@ -340,7 +394,7 @@ if __name__ == "__main__":
     
     n_test_profiles = 10
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
-    t_sample_profiles_logged = np.asarray([p for p in test_profiles]).astype(np.float64)
+    t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
     X_test = create_input_vectors(t_profile_params,t_associated_r)
     
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
@@ -353,13 +407,17 @@ if __name__ == "__main__":
         plt.plot(t_associated_r[i],test_prof,label = "True profile")
         
         logging.debug("Parameters for {}: {}".format(i,EinastoSim.print_params_maggie(t_profile_params[i])))
+        mng = plt.get_current_fig_manager()
         for j in range(10):
             plt.plot(t_associated_r[i],profile_sample[:,j], label = "Sample {}".format(j))
             plt.legend()
             plt.title(EinastoSim.print_params_maggie(t_profile_params[i]).replace("\t",""))
             plt.xlabel("Radius [Mpc]")
-            plt.ylabel("log({}) []".format(u"\u03C1"))
+            plt.ylabel("{} []".format(u"\u03C1"))
+            mng.full_screen_toggle()
+            plt.show()
+            plt.pause(1e-3)
             plt.savefig(plot_folder+"Sample_profiles_{}_{}_{}_{}_{}.png".format(run_id,j,now.hour,now.day,now.month))
     
     with open(run_file,"w") as f:
-        f.write(run_id +1)
+        f.write(str(run_id +1))

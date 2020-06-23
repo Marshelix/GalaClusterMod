@@ -23,9 +23,9 @@ Lyr2MPc = 3.066013938E-7 #
 km2Lyr = 9.461e+12
 km2Mpc = km2Lyr*Lyr2MPc
 h = 0.7 #cosmological parameter
-rmax_glob = 52850*Lyr2MPc
+rmax_glob = 3#52850*Lyr2MPc
 Mpc = 3.087*10**(16)
-rmin_glob = 0.01*rmax_glob
+rmin_glob = 1.5e-1
 r_gran_max = int(100)
 
 a0g = 1
@@ -90,11 +90,12 @@ def generate_set_einasto_profile(rmax, r_granularity, M200,z,alpha,r0,epsi,rho0,
 
 def generate_random_einasto_profile_maggie(rmax,r_granularity = r_gran_max):
     profile = []
-    Mdelta = 10**(13)*(1+100*random.random())*Msol
+    #normalized parameters
+    Mdelta = 10**(13)*(1+100*random.random())*Msol/(10**14*Msol) 
     cdelta = np.abs(random.normalvariate(1,1)) #random.random()
     delta = 200#random.random()/2
     alpha = np.clip(random.normalvariate(0.5,0.5),lowest_alpha_val,1)
-    zl = 0.6+(0.9*random.random())
+    zl = 0.6+(0.9*random.random())/0.9
     #print("{}".format([Mdelta, cdelta,delta,alpha,zl]))
     r = np.linspace(rmin_glob,rmax,int(r_granularity)) 
     profile = einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl)
@@ -105,10 +106,10 @@ def generate_n_random_einasto_profile_maggie(num_profiles,rmax = rmax_glob,r_gra
     radii = []
     for i in range(num_profiles):
         profile,params,r = generate_random_einasto_profile_maggie(rmax,r_granularity)
-        infinities = np.sum([int(np.isinf(p)) for p in profile])
-        nans = np.sum([int(np.isnan(p)) for p in profile])
-        zeros = np.sum([p == 0 for p in profile]) 
-        print("Profile {} generated, length {}, Infinities: {}, NaNs: {},zeros: {}".format(i,profile.size,infinities,nans,zeros))
+        #infinities = np.sum([int(np.isinf(p)) for p in profile])
+        #nans = np.sum([int(np.isnan(p)) for p in profile])
+        #zeros = np.sum([p == 0 for p in profile]) 
+        #print("Profile {} generated, length {}, Infinities: {}, NaNs: {},zeros: {}".format(i,profile.size,infinities,nans,zeros))
         profiles.append(profile)
         profile_params.append(params)
         radii.append(r)
