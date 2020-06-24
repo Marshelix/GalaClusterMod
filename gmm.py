@@ -44,8 +44,11 @@ logging.basicConfig(
     ]
 )
 '''
+
 '''
 
+
+logging.info("Running on GPU: {}".format(tf.test.is_gpu_available()))
 def calc_pdf(y, mu, var):
     """Calculate component density"""
     value = tf.subtract(y, mu)**2
@@ -80,7 +83,7 @@ def train_step(model, optimizer, train_x, train_y):
         pi_, mu_, var_ = model(train_x, training=True)
         print(pi_,mu_,var_)
         # calculate loss
-        sample = sample_predictions(pi_,mu_,var_,1)[:,0]
+        sample = sample_predictions(pi_,mu_,var_,1)[:,0,0]
         loss = tf.losses.mean_absolute_error(train_y,sample)#mdn_loss(train_y, pi_, mu_, var_)
     # compute and apply gradients
     gradients = tape.gradient(loss, model.trainable_variables)
@@ -99,13 +102,15 @@ def sample_predictions_tensorflow(pi_,mu_,var_,samples = 10):
         for j in range(samples):
             for li in range(out_dimensions):
                 for kdist in range(k):
+                    print(mu_[i,kdist*(li+out_dimensions)],var_[i,kdist],pi[i][kdist])
                     loc = mu_[i,kdist*(li+out_dimensions)]
                     scale = tf.sqrt(var_[i,kdist])
                     dist = tfp.distributions.normal.Normal(loc,scale)
                     out_l[i][j][li] += pi_[i][kdist]*dist.sample(1)
     return tf.stack(out_l)
-@tf.function
+#@tf.function
 def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
+    #print("Inputs: {},{},{}".format(pi_vals,mu_vals,var_vals)
     n, k = pi_vals.shape
     l_out = 1
     
@@ -122,11 +127,8 @@ def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
             for li in range(l_out):
                 for kdist in range(k):
                     # error at this step, cannot convert a symbolic tensor to a numpy array
-                    multiplier = pi_vals[i][kdist]
-                    loc = mu_vals[i,kdist*(li+l_out)]
-                    std = np.sqrt(var_vals[i][kdist])
-                    
-                    out[i,j,li] += multiplier*np.random.normal(loc,std)
+                    #print(mu_[i,kdist*(li+l_out)],var_[i][kdist],pi[i][kdist])
+                    out[i,j,li] += pi_vals[i][kdist]*np.random.normal(mu_vals[i,kdist*(li+l_out)],np.sqrt(var_vals[i][kdist]))
                 # Draw random sample from gaussian distribution
                 #out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
     return out    
