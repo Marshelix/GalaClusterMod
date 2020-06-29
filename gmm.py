@@ -145,7 +145,7 @@ def sample_predictions_tf_r(r_values, pi_vals, mu_vals, var_vals):
     assert n == len(r_values), "R value length does not match statistic values"
     final_array = []
     for i in range(n):
-        prob = [pi_vals[i,kd]/(tf.sqrt(2*np.pi*var_[i][kd]))*tf.exp(-(1/2*var_[i][kd])*((associated_r[i]-mu_[i][kd])**2)) for kd in range(k)]
+        prob = [pi_vals[i,kd]/(tf.sqrt(2*np.pi*var_vals[i][kd]))*tf.exp(-(1/2*var_vals[i][kd])*((r_values[i]-mu_vals[i][kd])**2)) for kd in range(k)]
         # 4xn distribution list
         final_dist = tf.add_n(prob)
         final_array.append(final_dist)
@@ -374,7 +374,7 @@ if __name__ == "__main__":
                     counter -= 1 #keep going if differential low enough, even if loss > min
                     counter = max([0,counter]) #keep > 0
             if tf.reduce_mean(loss) < best_loss:
-                logging.info("Epoch {}/{}: Elapsed Time: {}: new best loss: {}; Counter: {} %".format(i,EPOCHS,datetime.now()-train_start,losses[-1], 100*counter/counter_max))
+                logging.info("Epoch {}/{}: Elapsed Time: {}: new best loss: {}; Patience: {} %".format(i,EPOCHS,datetime.now()-train_start,losses[-1], 100*counter/counter_max))
                 best_loss = tf.reduce_mean(loss)
                 best_model = tf.keras.models.clone_model(model)
                 #best_model.save(".\\models\\best_model")
@@ -401,17 +401,17 @@ if __name__ == "__main__":
         loss_break = loss_break or (diff < 0) 
         training_bool = (training_bool or (not loss_break)) and (counter//counter_max < 1)
         if i % print_every == 0:
-            logging.info('Epoch {}/{}: Elapsed Time: {}; loss {}, Counter: {} %; MSE: {}; overlap: {}'.format(i, EPOCHS,datetime.now() - train_start, losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
+            logging.info('Epoch {}/{}: Elapsed Time: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(i, EPOCHS,datetime.now() - train_start, losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
         i = i+1
     
-    logging.info("Training completed after {}/{} epochs. Counter: {} %:: Best Loss: {}".format(i, EPOCHS, 100*counter/counter_max, best_loss))
+    logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(i, EPOCHS, 100*counter/counter_max, best_loss))
     logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
     score_file = "./scores.csv"
     logging.info("Saving best score {} to {}".format(best_loss,score_file))
     
-    df = pd.read_csv(score_file)
-    df["MAE"][run_id] = best_loss
-    df.to_csv(score_file)
+    score_df = pd.read_csv(score_file)
+    score_df["MAE"][run_id] = best_loss
+    score_df.to_csv(score_file)
     
     plot_folder = ".\\plots\\Run_{}\\".format(run_id)
     save_folder = ".\\models\\Run_{}\\best_model".format(run_id)
@@ -470,9 +470,11 @@ if __name__ == "__main__":
         mng = plt.get_current_fig_manager()
         
         plt.plot(t_associated_r[i],profile_sample, label = "Sample")
-        constituent_probabilities = tf.stack([pi_test[i][kd]/(tf.sqrt(2*np.pi*var_test[i][kd]))*tf.exp(-(1/(2*var_test[i][kd]))*((t_associated_r[i]-mu_test[i][kd])**2)) for kd in range(k)])
+        probability_arr = [pi_test[i][kd]/(tf.sqrt(2*np.pi*var_test[i][kd]))*tf.exp(-(1/(2*var_test[i][kd]))*((t_associated_r[i]-mu_test[i][kd])**2)) for kd in range(k)]
+        constituent_probabilities = tf.stack(probability_arr)
         for kd in range(k):
             plt.plot(t_associated_r[i],constituent_probabilities[kd], label = "Constituent {}".format(kd))
+        plt.plot(t_associated_r[i],tf.add_n(probability_arr),label = "Profile Addition")
         plt.legend()
         plt.title(EinastoSim.print_params_maggie(t_profile_params[i]).replace("\t",""))
         plt.xlabel("Radius [Mpc]")
