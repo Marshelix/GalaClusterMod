@@ -144,12 +144,14 @@ def sample_predictions_tf_r(r_values, pi_vals, mu_vals, var_vals):
     n,k = pi_vals.shape
     assert n == len(r_values), "R value length does not match statistic values"
     final_array = []
+    probability_array = [[] for pc in range(n)]
     for i in range(n):
         prob = [pi_vals[i,kd]/(tf.sqrt(2*np.pi*var_vals[i][kd]))*tf.exp(-(1/2*var_vals[i][kd])*((r_values[i]-mu_vals[i][kd])**2)) for kd in range(k)]
+        probability_array[i] = prob
         # 4xn distribution list
         final_dist = tf.add_n(prob)
         final_array.append(final_dist)
-    return tf.stack(final_array)
+    return tf.stack(final_array),probability_array
 
 
 
@@ -189,7 +191,7 @@ def calculate_renorm_profiles(profiles, profile_params = None):
 
 def plot_constituent_profiles(associated_r,pi_val,mu_val,var_val):
     n,k = pi_val.shape
-    sample = sample_predictions_tf_r(associated_r,pi_val,mu_val,var_val)[0,:]
+    sample,probability_array = sample_predictions_tf_r(associated_r,pi_val,mu_val,var_val)[0,:]
     i = 0
     prob = tf.stack([pi_val[i,kd]/(tf.sqrt(2*np.pi*var_val[i][kd]))*tf.exp(-(1/2*var_val[i][kd])*((associated_r[i]-mu_val[i][kd])**2)) for kd in range(k)])
     plt.figure()
@@ -249,7 +251,8 @@ if __name__ == "__main__":
     #output dimension
     out_dim = 1 #just r
     # Number of gaussians to represent the multimodal distribution
-    k = 4
+    k = 8#4
+    logging.info("Running {} dimensions on {} distributions".format(out_dim,k))
     # Network
     input = tf.keras.Input(shape=(l,))
     input_transfer_layer = tf.keras.layers.Dense(1,activation = None,dtype = tf.float64)
@@ -263,7 +266,7 @@ if __name__ == "__main__":
 
     
     losses = []
-    EPOCHS = 1000
+    EPOCHS = 250
     print_every = int(EPOCHS/100)
     
     # Define model and optimizer
@@ -308,8 +311,8 @@ if __name__ == "__main__":
     model = tf.keras.models.Model(input, [pi, mu, var])
     lr = 5e-4
     wd = 1e-6
-    logging.info("Learning Parameters: lr = {} \t wd = {}".format(lr,wd))
-    optimizer = tf.keras.optimizers.SGD(lr,wd)#tf.keras.optimizers.Adam(1e-3)
+    
+    optimizer = tf.keras.optimizers.Adam(lr)
     model.summary()
     #model.compile(optimizer, mdn_loss)
     N = np.asarray(X_full).shape[0]
@@ -319,7 +322,6 @@ if __name__ == "__main__":
     .shuffle(N).batch(N)
     
     # Start training
-    logging.debug('Print every {} epochs'.format(print_every))
     best_model = model
     best_loss = np.inf
     max_diff = 0.0  #differential loss
@@ -340,8 +342,17 @@ if __name__ == "__main__":
     overlap_ratios = []
     num_samples = 10
     likelihood_minimum = 0.9
-    loss_maximum = 1#-np.log(likelihood_minimum)
+    loss_target = 1e-6#-np.log(likelihood_minimum)
     diff = 0
+    logging.info("="*10+"Training info"+"="*10)
+    logging.debug('Print every {} epochs'.format(print_every))
+    logging.info("Learning Parameters: lr = {} \t wd = {}".format(lr,wd))
+    logging.info("Patience: {} increases".format(counter_max))
+    logging.info("Minimum delta loss to not lose patience: {}".format(minimum_delta))
+    logging.info("Target loss: < {}".format(loss_target))
+    logging.info("# Samples: {}".format(num_samples))
+    logging.info("="*(33))
+    
     train_start = datetime.now()
     logging.info("Starting training at: {}".format(train_start))
     while training_bool:
@@ -350,7 +361,7 @@ if __name__ == "__main__":
                 pi_, mu_, var_ = model(train_x,training = True)
                 #print(pi_,mu_,var_)
                 # calculate loss
-                sample = sample_predictions_tf_r(associated_r,pi_,mu_,var_)
+                sample, prob_array_training = sample_predictions_tf_r(associated_r,pi_,mu_,var_)
                 loss = tf.losses.mean_absolute_error(train_y,sample)
                 #mdn_loss(train_y, pi_, mu_, var_)
             # compute and apply gradients
@@ -374,14 +385,14 @@ if __name__ == "__main__":
                     counter -= 1 #keep going if differential low enough, even if loss > min
                     counter = max([0,counter]) #keep > 0
             if tf.reduce_mean(loss) < best_loss:
-                logging.info("Epoch {}/{}: Elapsed Time: {}: new best loss: {}; Patience: {} %".format(i,EPOCHS,datetime.now()-train_start,losses[-1], 100*counter/counter_max))
+                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(i,EPOCHS,datetime.now()-train_start,(datetime.now() - train_start)*(1-i/EPOCHS),losses[-1], 100*counter/counter_max))
                 best_loss = tf.reduce_mean(loss)
                 best_model = tf.keras.models.clone_model(model)
-                #best_model.save(".\\models\\best_model")
+                best_model.save(".\\models\\Run_{}\\best_model".format(run_id))
                 counter = 0
         #calculate mse
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
-        sample_preds = sample_predictions_tf_r(t_a_r,pi_tt,mu_tt,var_tt)
+        sample_preds,sample_probability_array = sample_predictions_tf_r(t_a_r,pi_tt,mu_tt,var_tt)
         profile_sample = sample_preds[0]
         mse_error_profiles = tf.losses.MSE(ttp_renormed[0],profile_sample)
         MSEs.append(mse_error_profiles)
@@ -397,11 +408,11 @@ if __name__ == "__main__":
         
         training_bool = i in range(EPOCHS)
         
-        loss_break = (best_loss.numpy() < loss_maximum)# and (np.exp(-best_loss.numpy()) > likelihood_minimum) #equivalent frankly, just redundant
+        loss_break = (best_loss.numpy() < loss_target)# and (np.exp(-best_loss.numpy()) > likelihood_minimum) #equivalent frankly, just redundant
         loss_break = loss_break or (diff < 0) 
-        training_bool = (training_bool or (not loss_break)) and (counter//counter_max < 1)
+        training_bool = (training_bool or (loss_break)) or (counter//counter_max < 1)
         if i % print_every == 0:
-            logging.info('Epoch {}/{}: Elapsed Time: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(i, EPOCHS,datetime.now() - train_start, losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
+            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(i, EPOCHS,datetime.now() - train_start,(datetime.now() - train_start)*(1-i/EPOCHS), losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
         i = i+1
     
     logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(i, EPOCHS, 100*counter/counter_max, best_loss))
@@ -458,7 +469,7 @@ if __name__ == "__main__":
     X_test = t_profile_params#create_input_vectors(t_profile_params,t_associated_r)
     
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
-    sample_preds = sample_predictions_tf_r(t_associated_r,pi_test,mu_test,var_test)
+    sample_preds, sample_probability_array = sample_predictions_tf_r(t_associated_r,pi_test,mu_test,var_test)
     
     for i in range(n_test_profiles):
         profile_sample = sample_preds[i,:]
