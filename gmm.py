@@ -22,6 +22,7 @@ import h5py
 
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 import tensorflow as tf
 #import tensorflow_addons as tfa #AdamW
 import tensorflow_probability as tfp#normal dist
@@ -54,8 +55,6 @@ logging.basicConfig(
 
 '''
 
-
-logging.info("Running on GPU: {}".format(tf.test.is_gpu_available()))
 def calc_pdf(y, mu, var):
     """Calculate component density"""
     value = tf.subtract(y, mu)**2
@@ -216,6 +215,9 @@ if __name__ == "__main__":
     logging.info("Starting new run #{} at {}".format(run_id,d_string))
     logging.info("="*20)
     num_profile_train = 2000
+    
+
+    logging.info("Running on GPU: {}".format(tf.test.is_gpu_available()))
     logging.info("Generating {} Profiles for training".format(num_profile_train))
     
     sample_profiles,profile_params,associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(num_profile_train)
@@ -251,7 +253,7 @@ if __name__ == "__main__":
     #output dimension
     out_dim = 1 #just r
     # Number of gaussians to represent the multimodal distribution
-    k = 8#4
+    k = 8
     logging.info("Running {} dimensions on {} distributions".format(out_dim,k))
     # Network
     input = tf.keras.Input(shape=(l,))
@@ -325,13 +327,13 @@ if __name__ == "__main__":
     best_model = model
     best_loss = np.inf
     max_diff = 0.0  #differential loss
-    i = 0
+    i = 1
     training_bool = i in range(EPOCHS)
     counter = 0
     counter_max = 100
     counters = []
     
-    minimum_delta = 1e-5
+    minimum_delta = 5e-4
     
     MSEs = []
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
@@ -342,7 +344,7 @@ if __name__ == "__main__":
     overlap_ratios = []
     num_samples = 10
     likelihood_minimum = 0.9
-    loss_target = 1e-6#-np.log(likelihood_minimum)
+    loss_target = 1e-3#-np.log(likelihood_minimum)
     diff = 0
     logging.info("="*10+"Training info"+"="*10)
     logging.debug('Print every {} epochs'.format(print_every))
@@ -385,10 +387,11 @@ if __name__ == "__main__":
                     counter -= 1 #keep going if differential low enough, even if loss > min
                     counter = max([0,counter]) #keep > 0
             if tf.reduce_mean(loss) < best_loss:
-                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(i,EPOCHS,datetime.now()-train_start,(datetime.now() - train_start)*(1-i/EPOCHS),losses[-1], 100*counter/counter_max))
+                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(i,EPOCHS,datetime.now()-train_start,(datetime.now() - train_start)*(EPOCHS-i)/i,losses[-1], 100*counter/counter_max))
                 best_loss = tf.reduce_mean(loss)
                 best_model = tf.keras.models.clone_model(model)
-                best_model.save(".\\models\\Run_{}\\best_model".format(run_id))
+                #best_model.save(".\\models\\Run_{}\\best_model".format(run_id))
+                best_model.save_weights(".\\models\\weights\\Run_{}".format(run_id))
                 counter = 0
         #calculate mse
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
@@ -410,9 +413,9 @@ if __name__ == "__main__":
         
         loss_break = (best_loss.numpy() < loss_target)# and (np.exp(-best_loss.numpy()) > likelihood_minimum) #equivalent frankly, just redundant
         loss_break = loss_break or (diff < 0) 
-        training_bool = (training_bool or (loss_break)) or (counter//counter_max < 1)
+        training_bool = (i <= EPOCHS or loss_break) if (counter//counter_max < 1) else False
         if i % print_every == 0:
-            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(i, EPOCHS,datetime.now() - train_start,(datetime.now() - train_start)*(1-i/EPOCHS), losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
+            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(i, EPOCHS,datetime.now() - train_start,(datetime.now() - train_start)*(EPOCHS-i)/i, losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
         i = i+1
     
     logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(i, EPOCHS, 100*counter/counter_max, best_loss))
@@ -427,8 +430,8 @@ if __name__ == "__main__":
     plot_folder = ".\\plots\\Run_{}\\".format(run_id)
     save_folder = ".\\models\\Run_{}\\best_model".format(run_id)
     logging.info("Saving best model to {}".format(save_folder))
-    best_model.save(save_folder)
-    
+    best_model.save_weights(save_folder)
+                
     if not os.path.exists(plot_folder):
         os.makedirs(plot_folder)
     logging.info("Saving to plot folder: {}".format(plot_folder))
