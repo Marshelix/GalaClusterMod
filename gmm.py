@@ -66,78 +66,6 @@ def pdf_np(y, mu, var):
     d = np.sqrt(2 * np.pi * var)
     return n/d
 
-def mdn_loss(y_true, pi, mu, var):
-    """MDN Loss Function
-    The eager mode in tensorflow 2.0 makes is extremely easy to write 
-    functions like these. It feels a lot more pythonic to me.
-    """
-    
-    #throw away first few y values
-    out = calc_pdf(y_true, mu, var)
-    # multiply with each pi and sum it
-    out = tf.multiply(out, pi)
-    out = tf.reduce_sum(out, 1, keepdims=True)
-    out = -tf.math.log(out + 1e-10)
-   # logging.debug(tf.reduce_mean(out))
-    return tf.reduce_mean(out)
-
-
-@tf.function
-def train_step(model, optimizer, train_x, train_y):
-    # GradientTape: Trace operations to compute gradients
-    with tf.GradientTape() as tape:
-        pi_, mu_, var_ = model(train_x, training=True)
-        print(pi_,mu_,var_)
-        # calculate loss
-        sample = sample_predictions(pi_,mu_,var_,1)[:,0,0]
-        loss = tf.losses.mean_absolute_error(train_y,sample)#mdn_loss(train_y, pi_, mu_, var_)
-    # compute and apply gradients
-    gradients = tape.gradient(loss, model.trainable_variables)
-    optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-    return loss
-
-def sample_predictions_tensorflow(pi_,mu_,var_,samples = 10):
-    '''
-    Implement the generation of samples
-    '''
-    n,k = pi_.shape
-    out_dimensions = 1
-    out = tf.zeros((n,samples,out_dimensions),dtype = tf.float64)
-    out_l = tf.unstack(out)
-    for i in range(n):
-        for j in range(samples):
-            for li in range(out_dimensions):
-                for kdist in range(k):
-                    print(mu_[i,kdist*(li+out_dimensions)],var_[i,kdist],pi[i][kdist])
-                    loc = mu_[i,kdist*(li+out_dimensions)]
-                    scale = tf.sqrt(var_[i,kdist])
-                    dist = tfp.distributions.normal.Normal(loc,scale)
-                    out_l[i][j][li] += pi_[i][kdist]*dist.sample(1)
-    return tf.stack(out_l)
-
-def sample_predictions(pi_vals, mu_vals, var_vals, samples=10):
-    #print("Inputs: {},{},{}".format(pi_vals,mu_vals,var_vals)
-    n, k = pi_vals.shape
-    l_out = 1
-    
-    #pi_vals = pi_vals.numpy()
-    #mu_vals = mu_vals.numpy()
-    #var_vals = var_vals.numpy()
-    # place holder to store the y value for each sample of each row
-    out = np.zeros((n, samples, l_out))
-    
-    for i in range(n):
-        for j in range(samples):
-            # for each sample, use pi/probs to sample the index
-            # that will be used to pick up the mu and var values
-            #idx = np.random.choice(range(k), p=probs)
-            for li in range(l_out):
-                for kdist in range(k):
-                    #print(mu_[i,kdist*(li+l_out)],var_[i][kdist],pi[i][kdist])
-                    out[i,j,li] += pi_vals[i][kdist]*np.random.normal(mu_vals[i,kdist*(li+l_out)],np.sqrt(var_vals[i][kdist]))
-                # Draw random sample from gaussian distribution
-                #out[i,j,li] = np.random.normal(mu_vals[i, idx*(li+l_out)], np.sqrt(var_vals[i, idx]))
-    return out
 
 def sample_predictions_tf_r(r_values, pi_vals, mu_vals, var_vals):
     n,k = pi_vals.shape
@@ -150,7 +78,7 @@ def sample_predictions_tf_r(r_values, pi_vals, mu_vals, var_vals):
         # 4xn distribution list
         final_dist = tf.add_n(prob)
         final_array.append(final_dist)
-    return tf.stack(final_array),probability_array
+    return tf.stack(final_array),probability_array,[pi_vals,mu_vals,var_vals]
 
 
 
@@ -188,16 +116,6 @@ def calculate_renorm_profiles(profiles, profile_params = None):
     out = [(profiles[i] - profile_params[i][0])/(profile_params[i][1]-profile_params[i][0]) for i in range(len(profiles))]
     return out
 
-def plot_constituent_profiles(associated_r,pi_val,mu_val,var_val):
-    n,k = pi_val.shape
-    sample,probability_array = sample_predictions_tf_r(associated_r,pi_val,mu_val,var_val)[0,:]
-    i = 0
-    prob = tf.stack([pi_val[i,kd]/(tf.sqrt(2*np.pi*var_val[i][kd]))*tf.exp(-(1/2*var_val[i][kd])*((associated_r[i]-mu_val[i][kd])**2)) for kd in range(k)])
-    plt.figure()
-    plt.plot(associated_r[i],sample,label = "Sample")
-    for kd in range(k):
-        plt.plot(associated_r[i],prob[kd], label = "Constituent {}".format(kd))
-    plt.legend()
     
     
 if __name__ == "__main__":
@@ -253,7 +171,7 @@ if __name__ == "__main__":
     #output dimension
     out_dim = 1 #just r
     # Number of gaussians to represent the multimodal distribution
-    k = 8
+    k = 4
     logging.info("Running {} dimensions on {} distributions".format(out_dim,k))
     # Network
     input = tf.keras.Input(shape=(l,))
@@ -268,7 +186,7 @@ if __name__ == "__main__":
 
     
     losses = []
-    EPOCHS = 250
+    EPOCHS = 500
     print_every = int(EPOCHS/100)
     
     # Define model and optimizer
@@ -311,8 +229,8 @@ if __name__ == "__main__":
     
     
     model = tf.keras.models.Model(input, [pi, mu, var])
-    lr = 5e-4
-    wd = 1e-6
+    lr = 1e-2
+    wd = 0#1e-6
     
     optimizer = tf.keras.optimizers.Adam(lr)
     model.summary()
@@ -327,8 +245,8 @@ if __name__ == "__main__":
     best_model = model
     best_loss = np.inf
     max_diff = 0.0  #differential loss
-    i = 1
-    training_bool = i in range(EPOCHS)
+    epoch = 1
+    training_bool = epoch in range(EPOCHS)
     counter = 0
     counter_max = 100
     counters = []
@@ -353,6 +271,7 @@ if __name__ == "__main__":
     logging.info("Minimum delta loss to not lose patience: {}".format(minimum_delta))
     logging.info("Target loss: < {}".format(loss_target))
     logging.info("# Samples: {}".format(num_samples))
+    logging.info("Printing every {} epochs".format(print_every))
     logging.info("="*(33))
     
     train_start = datetime.now()
@@ -363,7 +282,24 @@ if __name__ == "__main__":
                 pi_, mu_, var_ = model(train_x,training = True)
                 #print(pi_,mu_,var_)
                 # calculate loss
-                sample, prob_array_training = sample_predictions_tf_r(associated_r,pi_,mu_,var_)
+                '''
+                It appears that calculating the profiles in function performs incorrectly...
+                
+                '''
+                n,_ = pi_.shape
+                final_array = []
+                probability_array = [[] for pc in range(n)]
+                for i in range(n):
+                    prob = [pi_[i,kd]/(tf.sqrt(2*np.pi*var_[i][kd]))*tf.exp(-(1/2*var_[i][kd])*((associated_r[i]-mu_[i][kd])**2)) for kd in range(k)]
+                    probability_array[i] = prob
+                    # 4xn distribution list
+                    final_dist = tf.add_n(prob)
+                    final_array.append(final_dist)
+                sample = tf.stack(final_array)
+                prob_array_training = probability_array
+                
+                
+                #sample, prob_array_training,_ = sample_predictions_tf_r(associated_r,pi_,mu_,var_)
                 loss = tf.losses.mean_absolute_error(train_y,sample)
                 #mdn_loss(train_y, pi_, mu_, var_)
             # compute and apply gradients
@@ -386,16 +322,29 @@ if __name__ == "__main__":
                     max_diff = diff
                     counter -= 1 #keep going if differential low enough, even if loss > min
                     counter = max([0,counter]) #keep > 0
+                    
             if tf.reduce_mean(loss) < best_loss:
-                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(i,EPOCHS,datetime.now()-train_start,(datetime.now() - train_start)*(EPOCHS-i)/i,losses[-1], 100*counter/counter_max))
+                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(epoch,EPOCHS,datetime.now()-train_start,(datetime.now() - train_start)*(EPOCHS-epoch)/epoch,losses[-1], 100*counter/counter_max))
                 best_loss = tf.reduce_mean(loss)
                 best_model = tf.keras.models.clone_model(model)
                 #best_model.save(".\\models\\Run_{}\\best_model".format(run_id))
-                best_model.save_weights(".\\models\\weights\\Run_{}".format(run_id))
+                best_model.save_weights(".\\models\\weights\\Run_{}\\Run".format(run_id))
                 counter = 0
         #calculate mse
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
-        sample_preds,sample_probability_array = sample_predictions_tf_r(t_a_r,pi_tt,mu_tt,var_tt)
+        n,_ = pi_tt.shape
+        final_array = []
+        probability_array = [[] for pc in range(n)]
+        for i in range(n):
+            prob = [pi_tt[i,kd]/(tf.sqrt(2*np.pi*var_tt[i][kd]))*tf.exp(-(1/2*var_tt[i][kd])*((t_a_r[i]-mu_tt[i][kd])**2)) for kd in range(k)]
+            probability_array[i] = prob
+            # 4xn distribution list
+            final_dist = tf.add_n(prob)
+            final_array.append(final_dist)
+        sample_preds = tf.stack(final_array)
+        
+        
+        #sample_preds,sample_probability_array,_ = sample_predictions_tf_r(t_a_r,pi_tt,mu_tt,var_tt)
         profile_sample = sample_preds[0]
         mse_error_profiles = tf.losses.MSE(ttp_renormed[0],profile_sample)
         MSEs.append(mse_error_profiles)
@@ -409,16 +358,16 @@ if __name__ == "__main__":
         
         counters.append(counter)
         
-        training_bool = i in range(EPOCHS)
+        training_bool = epoch in range(EPOCHS)
         
         loss_break = (best_loss.numpy() < loss_target)# and (np.exp(-best_loss.numpy()) > likelihood_minimum) #equivalent frankly, just redundant
         loss_break = loss_break or (diff < 0) 
-        training_bool = (i <= EPOCHS or loss_break) if (counter//counter_max < 1) else False
+        training_bool = (epoch <= EPOCHS or not loss_break) if (counter//counter_max < 1) else False
         if i % print_every == 0:
-            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(i, EPOCHS,datetime.now() - train_start,(datetime.now() - train_start)*(EPOCHS-i)/i, losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
-        i = i+1
+            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,(datetime.now() - train_start)*(EPOCHS-epoch)/epoch, losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
+        epoch = epoch+1
     
-    logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(i, EPOCHS, 100*counter/counter_max, best_loss))
+    logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(epoch, EPOCHS, 100*counter/counter_max, best_loss))
     logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
     score_file = "./scores.csv"
     logging.info("Saving best score {} to {}".format(best_loss,score_file))
@@ -472,7 +421,21 @@ if __name__ == "__main__":
     X_test = t_profile_params#create_input_vectors(t_profile_params,t_associated_r)
     
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
-    sample_preds, sample_probability_array = sample_predictions_tf_r(t_associated_r,pi_test,mu_test,var_test)
+    
+    n,_ = pi_test.shape
+    final_array = []
+    probability_array = [[] for pc in range(n)]
+    for i in range(n):
+        prob = [pi_test[i,kd]/(tf.sqrt(2*np.pi*var_test[i][kd]))*tf.exp(-(1/2*var_test[i][kd])*((t_associated_r[i]-mu_test[i][kd])**2)) for kd in range(k)]
+        probability_array[i] = prob
+        # 4xn distribution list
+        final_dist = tf.add_n(prob)
+        final_array.append(final_dist)
+    sample_preds = tf.stack(final_array)
+    sample_probability_array = probability_array
+    
+    
+    #sample_preds, sample_probability_array,sample_stat_inputs = sample_predictions_tf_r(t_associated_r,pi_test,mu_test,var_test)
     
     for i in range(n_test_profiles):
         profile_sample = sample_preds[i,:]
@@ -484,11 +447,12 @@ if __name__ == "__main__":
         mng = plt.get_current_fig_manager()
         
         plt.plot(t_associated_r[i],profile_sample, label = "Sample")
-        probability_arr = [pi_test[i][kd]/(tf.sqrt(2*np.pi*var_test[i][kd]))*tf.exp(-(1/(2*var_test[i][kd]))*((t_associated_r[i]-mu_test[i][kd])**2)) for kd in range(k)]
-        constituent_probabilities = tf.stack(probability_arr)
+        #probability_arr = [pi_test[i][kd]/(tf.sqrt(2*np.pi*var_test[i][kd]))*tf.exp(-(1/(2*var_test[i][kd]))*((t_associated_r[i]-mu_test[i][kd])**2)) for kd in range(k)]
+        #constituent_probabilities = tf.stack(probability_arr)
         for kd in range(k):
-            plt.plot(t_associated_r[i],constituent_probabilities[kd], label = "Constituent {}".format(kd))
-        plt.plot(t_associated_r[i],tf.add_n(probability_arr),label = "Profile Addition")
+            plt.plot(t_associated_r[i],sample_probability_array[i][kd],label = "Sampled Constituent {}".format(kd)) #plotting probabilities found in the method
+            #plt.plot(t_associated_r[i],constituent_probabilities[kd], label = "Constituent {}".format(kd))
+        #plt.plot(t_associated_r[i],tf.add_n(probability_arr),label = "Profile Addition")
         plt.legend()
         plt.title(EinastoSim.print_params_maggie(t_profile_params[i]).replace("\t",""))
         plt.xlabel("Radius [Mpc]")
