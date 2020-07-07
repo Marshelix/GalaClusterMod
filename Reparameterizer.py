@@ -2,49 +2,27 @@
 """
 Created on Fri Jun 26 09:36:58 2020
 
-@author: marti
+@author: Martin Sanner
 """
 
-import EinastoSim
-import numpy as np
-
 class reparameterizer:
-    def __init__(self, parameters):
+    def __init__(self, profiles):
         '''
-        Module that takes a set of profile parameters, generates their statistics and normalizes it
+        Module that takes a set of data profile, generates their statistics and normalizes it to a 0-1 range
         Alternatively can reparameterize a set of normalized parameters of the same family
         '''
-        self.parameters = parameters
-        self.num_param_sets = len(parameters)
-        self.num_params = len(parameters[0])
-        self.means = np.asarray([0 for i in range(self.num_params)])
-        self.var = np.asarray([1 for i in range(self.num_params)])
-        assert len(parameters) == 5
-    def calculate_parameterization(self, parameters = None):
-        if parameters is not None:
-            self.parameters = parameters
-            self.num_params = len(parameters[0])
-            self.num_param_sets = len(parameters)
-            
-            self.means = np.asarray([0 for i in range(self.num_params)])
-            self.var = np.asarray([1 for i in range(self.num_params)])
-        for params in self.parameters:
-            self.means += params
-        self.means /= self.num_param_sets
+        self.profiles = profiles
+        self.num_param_sets = len(self.profiles)
+        #minmax parameterization
+        self.minmax = [[0,1] for i in range(self.num_param_sets)]
+    def calculate_parameterization(self, profiles = None):
+        if profiles != None:
+            self.profiles = profiles
+        self.minmax = [[min(p),max(p)] for p in profiles]
+        return [p-min(p)/(max(p)-min(p)) for p in profiles]
+    def calculate_deparameterization(self, new_profiles):
+        assert len(new_profiles) == self.num_param_sets,"This reparameterizer expects {} profiles.".format(self.num_param_sets)
+        return [new_profiles[i]*(self.minmax[i][1]-self.minmax[i][0])+self.minmax[i][0] for i in range(self.num_param_sets)]
         
-        for params in self.parameters:
-            self.var += (params - self.means)**2
-        self.var /= self.num_param_sets
-        
-        out = [[0 for j in range(self.num_params)] for k in range(self.num_param_sets)]
-        for k in range(self.num_param_sets):
-            for j in range(self.num_params):
-                out[k,j] = (parameters[k,j]-self.means[j])/np.sqrt(self.var[j])
-        return out
-    def calculate_deparameterization(self, parameters):
-        out = [[0 for j in range(self.num_params)] for k in range(self.num_param_sets)]
-        for k in range(self.num_param_sets):
-            for j in range(self.num_params):
-                out[k,k] = (parameters[k,j]*np.sqrt(self.var[j]))+self.means[j]
-        return out
+    
     
