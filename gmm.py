@@ -36,6 +36,9 @@ from datetime import datetime
 
 import pandas as pd
 
+from normal_dist_calculator import generate_tensor_mixture_model
+from Reparameterizer import reparameterizer
+
 np.random.seed(42)
 tf.random.set_seed(42)
 plt.close("all")
@@ -57,65 +60,6 @@ logging.basicConfig(
 '''
 
 '''
-
-def calc_pdf(y, mu, var):
-    """Calculate component density"""
-    value = tf.subtract(y, mu)**2
-    value = (1/tf.math.sqrt(2 * np.pi * var)) * tf.math.exp((-1/(2*var)) * value)
-    return value
-
-def pdf_np(y, mu, var):
-    n = np.exp((-(y-mu)**2)/(2*var))
-    d = np.sqrt(2 * np.pi * var)
-    return n/d
-
-
-def sample_predictions_tf_r(r_values, pi_vals, mu_vals, var_vals):
-    n,k = pi_vals.shape
-    assert n == len(r_values), "R value length does not match statistic values"
-    final_array = []
-    probability_array = [[] for pc in range(n)]
-    for i in range(n):
-        prob = [pi_vals[i,kd]/(tf.sqrt(2*np.pi*var_vals[i][kd]))*tf.exp(-(1/2*var_vals[i][kd])*((r_values[i]-mu_vals[i][kd])**2)) for kd in range(k)]
-        probability_array[i] = prob
-        # 4xn distribution list
-        final_dist = tf.add_n(prob)
-        final_array.append(final_dist)
-    return tf.stack(final_array),probability_array,[pi_vals,mu_vals,var_vals]
-
-
-
-
-def mse_error(y_true, y_sample):
-    '''
-    Generates an average MSE fit between a true distribution and a sequence of samples
-    '''
-    if np.asarray(y_true.shape).size > 1:
-        n,l = y_true.shape
-    else:
-        n = len(y_true)
-    n2, num_samples = y_sample.shape
-    assert n2 == n, "Sample has different granularity from original sequence"
-    error = np.sum([np.dot(np.transpose(y_true-y_sample[:,k]),y_true-y_sample[:,k]) for k in range(num_samples)])
-    error /= num_samples
-    return error
-
-
-
-
-
-def calculate_profile_minmax_param(profiles):
-    params = [[min(p),max(p)] for p in (profiles)]
-    return params
-
-def calculate_renorm_profiles(profiles, profile_params = None):
-    if profile_params == None:
-        profile_params = calculate_profile_minmax_param(profiles)
-    assert len(profile_params) == len(profiles)
-    out = [(profiles[i] - profile_params[i][0])/(profile_params[i][1]-profile_params[i][0]) for i in range(len(profiles))]
-    return out
-
-    
     
 if __name__ == "__main__":
     run_file = "./runID.txt"
@@ -145,7 +89,8 @@ if __name__ == "__main__":
     
     # remove log as test
     sample_profiles_logged = np.asarray([np.log(p) for p in sample_profiles]).astype(np.float64)
-    sample_profiles_renormed = np.asarray(calculate_renorm_profiles(sample_profiles_logged)).astype(np.float64)
+    sample_reparam = reparameterizer(sample_profiles_logged)
+    sample_profiles_renormed = sample_reparam.calculate_parameterization().astype(np.float64)#np.asarray(calculate_renorm_profiles(sample_profiles_logged)).astype(np.float64)
     
     X_full = profile_params#create_input_vectors(profile_params, associated_r) 
     X_full = np.asarray(X_full).astype(np.float64)
@@ -174,17 +119,18 @@ if __name__ == "__main__":
     
     # Define model and optimizer
     model = tf.keras.models.Model(input, [pi, mu, var])
-    lr = 1e-3
+    lr = 5e-4
     wd = 0#1e-6
     
     optimizer = tf.keras.optimizers.Adam(lr)
     model.summary()
     
     N = np.asarray(X_full).shape[0]
-    
+    num_batches = 10
+    batchsize = N//num_batches
     dataset = tf.data.Dataset \
     .from_tensor_slices((X_full, sample_profiles_renormed)) \
-    .shuffle(N).batch(N)
+    .shuffle(N).batch(batchsize)
     
     # Start training
     best_model = model
@@ -193,7 +139,7 @@ if __name__ == "__main__":
     epoch = 1
     training_bool = epoch in range(EPOCHS)
     counter = 0
-    counter_max = 100
+    counter_max = 200
     counters = []
     
     minimum_delta = 5e-4
@@ -201,7 +147,8 @@ if __name__ == "__main__":
     MSEs = []
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
     ttp_logged = np.asarray([np.log(p) for p in train_testing_profile]).astype(np.float64)
-    ttp_renormed = np.asarray(calculate_renorm_profiles(ttp_logged)).astype(np.float64)
+    ttp_reparam = reparameterizer(ttp_logged)
+    ttp_renormed = ttp_reparam.calculate_parameterization().astype(np.float64)#np.asarray(calculate_renorm_profiles(ttp_logged)).astype(np.float64)
     X_tt = tt_p_para#create_input_vectors(tt_p_para,t_a_r)
     
     overlap_ratios = []
@@ -216,6 +163,7 @@ if __name__ == "__main__":
     logging.info("Minimum delta loss to not lose patience: {}".format(minimum_delta))
     logging.info("Target loss: < {}".format(loss_target))
     logging.info("# Samples: {}".format(num_samples))
+    logging.info("# Training Profiles: {}".format(num_profile_train))
     logging.info("Printing every {} epochs".format(print_every))
     logging.info("="*(33))
     
@@ -231,6 +179,8 @@ if __name__ == "__main__":
                 It appears that calculating the profiles in function performs incorrectly...
                 
                 '''
+                sample, prob_array_training = generate_tensor_mixture_model(associated_r,pi_,mu_,var_)
+                '''
                 n,_ = pi_.shape
                 final_array = []
                 probability_array = [[] for pc in range(n)]
@@ -242,7 +192,7 @@ if __name__ == "__main__":
                     final_array.append(final_dist)
                 sample = tf.stack(final_array)
                 prob_array_training = probability_array
-                
+                '''
                 
                 #sample, prob_array_training,_ = sample_predictions_tf_r(associated_r,pi_,mu_,var_)
                 loss = tf.losses.mean_absolute_error(train_y,sample)
@@ -277,18 +227,7 @@ if __name__ == "__main__":
                 counter = 0
         #calculate mse
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
-        n,_ = pi_tt.shape
-        final_array = []
-        probability_array = [[] for pc in range(n)]
-        for i in range(n):
-            prob = [pi_tt[i,kd]/(tf.sqrt(2*np.pi*var_tt[i][kd]))*tf.exp(-(1/2*var_tt[i][kd])*((t_a_r[i]-mu_tt[i][kd])**2)) for kd in range(k)]
-            probability_array[i] = prob
-            # 4xn distribution list
-            final_dist = tf.add_n(prob)
-            final_array.append(final_dist)
-        sample_preds = tf.stack(final_array)
-        
-        
+        sample_preds, sample_probability_array = generate_tensor_mixture_model(t_a_r,pi_tt,mu_tt,var_tt)
         #sample_preds,sample_probability_array,_ = sample_predictions_tf_r(t_a_r,pi_tt,mu_tt,var_tt)
         profile_sample = sample_preds[0]
         mse_error_profiles = tf.losses.MSE(ttp_renormed[0],profile_sample)
@@ -308,7 +247,7 @@ if __name__ == "__main__":
         loss_break = (best_loss.numpy() < loss_target)# and (np.exp(-best_loss.numpy()) > likelihood_minimum) #equivalent frankly, just redundant
         loss_break = loss_break or (diff < 0) 
         training_bool = (epoch <= EPOCHS or not loss_break) if (counter//counter_max < 1) else False
-        if i % print_every == 0:
+        if epoch % print_every == 0:
             logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,(datetime.now() - train_start)*(EPOCHS-epoch)/epoch, losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
         epoch = epoch+1
     
@@ -362,24 +301,12 @@ if __name__ == "__main__":
     n_test_profiles = 10
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
-    t_s_renorm = np.asarray(calculate_renorm_profiles(t_sample_profiles_logged)).astype(np.float64)
+    t_s_reparam = reparameterizer(t_sample_profiles_logged)
+    t_s_renorm = t_s_reparam.calculate_parameterization().astype(np.float64)
     X_test = t_profile_params#create_input_vectors(t_profile_params,t_associated_r)
     
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
-    
-    n,_ = pi_test.shape
-    final_array = []
-    probability_array = [[] for pc in range(n)]
-    for i in range(n):
-        prob = [pi_test[i,kd]/(tf.sqrt(2*np.pi*var_test[i][kd]))*tf.exp(-(1/2*var_test[i][kd])*((t_associated_r[i]-mu_test[i][kd])**2)) for kd in range(k)]
-        probability_array[i] = prob
-        # 4xn distribution list
-        final_dist = tf.add_n(prob)
-        final_array.append(final_dist)
-    sample_preds = tf.stack(final_array)
-    sample_probability_array = probability_array
-    
-    
+    sample_preds, sample_probability_array = generate_tensor_mixture_model(t_associated_r, pi_test,mu_test, var_test)
     #sample_preds, sample_probability_array,sample_stat_inputs = sample_predictions_tf_r(t_associated_r,pi_test,mu_test,var_test)
     
     for i in range(n_test_profiles):
