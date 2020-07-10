@@ -114,7 +114,7 @@ if __name__ == "__main__":
 
     
     losses = []
-    EPOCHS = 500
+    EPOCHS = 5000
     print_every = int(EPOCHS/100)
     
     # Define model and optimizer
@@ -142,7 +142,7 @@ if __name__ == "__main__":
     counter_max = 200
     counters = []
     
-    minimum_delta = 5e-4
+    minimum_delta = 5e-5
     
     MSEs = []
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
@@ -169,6 +169,7 @@ if __name__ == "__main__":
     
     train_start = datetime.now()
     logging.info("Starting training at: {}".format(train_start))
+    time_estimate_per_epoch = np.inf
     while training_bool:
         for train_x, train_y in dataset:
             with tf.GradientTape() as tape:
@@ -210,16 +211,16 @@ if __name__ == "__main__":
             if len(losses) > 1:
                 diff = losses[-1] - losses[-2]
                 if diff < max_diff:
-                    counter += 1
+                    counter += 1/num_batches
                 if diff < minimum_delta:
-                    counter += 1
+                    counter += 1/num_batches
                 elif diff > max_diff + minimum_delta:
                     max_diff = diff
-                    counter -= 1 #keep going if differential low enough, even if loss > min
+                    counter -= 1/num_batches #keep going if differential low enough, even if loss > min
                     counter = max([0,counter]) #keep > 0
                     
             if tf.reduce_mean(loss) < best_loss:
-                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(epoch,EPOCHS,datetime.now()-train_start,(datetime.now() - train_start)*(EPOCHS-epoch)/epoch,losses[-1], 100*counter/counter_max))
+                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(epoch,EPOCHS,datetime.now()-train_start,time_estimate_per_epoch*(EPOCHS-epoch),losses[-1], 100*counter/counter_max))
                 best_loss = tf.reduce_mean(loss)
                 best_model = tf.keras.models.clone_model(model)
                 #best_model.save(".\\models\\Run_{}\\best_model".format(run_id))
@@ -247,8 +248,9 @@ if __name__ == "__main__":
         loss_break = (best_loss.numpy() < loss_target)# and (np.exp(-best_loss.numpy()) > likelihood_minimum) #equivalent frankly, just redundant
         loss_break = loss_break or (diff < 0) 
         training_bool = (epoch <= EPOCHS or not loss_break) if (counter//counter_max < 1) else False
+        time_estimate_per_epoch = (datetime.now()-train_start)/epoch
         if epoch % print_every == 0:
-            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,(datetime.now() - train_start)*(EPOCHS-epoch)/epoch, losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
+            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,time_estimate_per_epoch*(EPOCHS-epoch), losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
         epoch = epoch+1
     
     logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(epoch, EPOCHS, 100*counter/counter_max, best_loss))
