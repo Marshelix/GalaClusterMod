@@ -276,27 +276,28 @@ if __name__ == "__main__":
     plt.xlabel("Epoch")
     plt.ylabel("NAE Loss")
     plt.savefig(plot_folder+"Losses_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    
+    plt.close("all")
     plt.figure()
     plt.plot(counters)
     plt.title("Counter values")
     plt.xlabel("Epoch")
     plt.ylabel("Counter")
     plt.savefig(plot_folder+"Counter_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    
+    plt.close("all")
     plt.figure()
     plt.plot(MSEs)
     plt.title("MSE")
     plt.xlabel("Epoch")
     plt.ylabel("Pseudo MSE")
     plt.savefig(plot_folder+"MSE_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    
+    plt.close("all")
     plt.figure()
     plt.plot(overlap_ratios)
     plt.title("Profile Overlap Ratios true/generated")
     plt.xlabel("Epoch")
     plt.ylabel("Overlap")
     plt.savefig(plot_folder+"Overlap_{}_{}_{}.png".format(now.hour,now.day,now.month))
+    plt.close("all")
     
     n_test_profiles = 10
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
@@ -333,6 +334,7 @@ if __name__ == "__main__":
         plt.show()
         plt.pause(1e-3)
         plt.savefig(plot_folder+"Sample_profiles_{}_{}_{}_{}_{}.png".format(run_id,i,now.hour,now.day,now.month))
+        plt.close("all")
     
     with open(run_file,"w") as f:
         f.write(str(run_id +1))
