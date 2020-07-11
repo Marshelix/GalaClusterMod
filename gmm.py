@@ -20,9 +20,6 @@ import matplotlib.pyplot as plt
 import EinastoSim
 import h5py
 
-
-
-
 import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
@@ -75,7 +72,7 @@ if __name__ == "__main__":
     logging.info("="*20)
     logging.info("Starting new run #{} at {}".format(run_id,d_string))
     logging.info("="*20)
-    num_profile_train = 2000
+    num_profile_train = 10000
     
 
     logging.info("Running on GPU: {}".format(tf.test.is_gpu_available()))
@@ -139,10 +136,10 @@ if __name__ == "__main__":
     epoch = 1
     training_bool = epoch in range(EPOCHS)
     counter = 0
-    counter_max = 200
+    counter_max = 1000
     counters = []
     
-    minimum_delta = 5e-5
+    minimum_delta = 5e-7
     
     MSEs = []
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
