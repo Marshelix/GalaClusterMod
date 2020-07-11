@@ -136,7 +136,7 @@ if __name__ == "__main__":
     epoch = 1
     training_bool = epoch in range(EPOCHS)
     counter = 0
-    counter_max = 1000
+    counter_max = 5000
     counters = []
     
     minimum_delta = 5e-7
@@ -200,7 +200,7 @@ if __name__ == "__main__":
             optimizer.apply_gradients(zip(gradients, model.trainable_variables))
             
             #loss = train_step(model, optimizer,train_x,train_y)
-            losses.append(tf.reduce_mean(loss))
+            
             #likelihood = np.exp(-tf.reduce_mean(loss).numpy())
             if tf.reduce_mean(loss) > best_loss:
                 counter += 1
@@ -223,6 +223,8 @@ if __name__ == "__main__":
                 #best_model.save(".\\models\\Run_{}\\best_model".format(run_id))
                 best_model.save_weights(".\\models\\weights\\Run_{}\\Run".format(run_id))
                 counter = 0
+        #append epoch loss
+        losses.append(tf.reduce_mean(loss))
         #calculate mse
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
         sample_preds, sample_probability_array = generate_tensor_mixture_model(t_a_r,pi_tt,mu_tt,var_tt)
@@ -280,9 +282,9 @@ if __name__ == "__main__":
     
     #plt.figure()
     plt.plot(counters)
-    plt.title("Counter values")
+    plt.title("Absolute Patience")
     plt.xlabel("Epoch")
-    plt.ylabel("Counter")
+    plt.ylabel("Patience")
     plt.savefig(plot_folder+"Counter_{}_{}_{}.png".format(now.hour,now.day,now.month))
     #plt.close("all")
     plt.cla()
