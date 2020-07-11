@@ -272,35 +272,41 @@ if __name__ == "__main__":
     logging.info("Saving to plot folder: {}".format(plot_folder))
     
     now = datetime.now()
-    plt.figure()
+    #plt.figure()
     plt.plot(losses)
     plt.title("MAE Loss")
     plt.xlabel("Epoch")
     plt.ylabel("NAE Loss")
     plt.savefig(plot_folder+"Losses_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    plt.close("all")
-    plt.figure()
+    #plt.close("all")
+    plt.cla()
+    
+    #plt.figure()
     plt.plot(counters)
     plt.title("Counter values")
     plt.xlabel("Epoch")
     plt.ylabel("Counter")
     plt.savefig(plot_folder+"Counter_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    plt.close("all")
-    plt.figure()
+    #plt.close("all")
+    plt.cla()
+    
+    #plt.figure()
     plt.plot(MSEs)
     plt.title("MSE")
     plt.xlabel("Epoch")
     plt.ylabel("Pseudo MSE")
     plt.savefig(plot_folder+"MSE_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    plt.close("all")
-    plt.figure()
+    plt.cla()
+    #plt.close("all")
+    
+    #plt.figure()
     plt.plot(overlap_ratios)
     plt.title("Profile Overlap Ratios true/generated")
     plt.xlabel("Epoch")
     plt.ylabel("Overlap")
     plt.savefig(plot_folder+"Overlap_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    plt.close("all")
-    
+    #plt.close("all")
+    plt.cla()
     n_test_profiles = 10
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
@@ -315,11 +321,11 @@ if __name__ == "__main__":
     for i in range(n_test_profiles):
         profile_sample = sample_preds[i,:]
         test_prof = t_s_renorm[i]
-        plt.figure()
+        #plt.figure()
         plt.plot(t_associated_r[i],test_prof,label = "True profile")
         
         logging.debug("Parameters for {}: {}".format(i,EinastoSim.print_params_maggie(t_profile_params[i])))
-        mng = plt.get_current_fig_manager()
+        #mng = plt.get_current_fig_manager()
         
         plt.plot(t_associated_r[i],profile_sample, label = "Sample")
         #probability_arr = [pi_test[i][kd]/(tf.sqrt(2*np.pi*var_test[i][kd]))*tf.exp(-(1/(2*var_test[i][kd]))*((t_associated_r[i]-mu_test[i][kd])**2)) for kd in range(k)]
@@ -332,11 +338,12 @@ if __name__ == "__main__":
         plt.title(EinastoSim.print_params_maggie(t_profile_params[i]).replace("\t",""))
         plt.xlabel("Radius [Mpc]")
         plt.ylabel("log({}) []".format(u"\u03C1"))
-        mng.full_screen_toggle()
-        plt.show()
-        plt.pause(1e-3)
+        #mng.full_screen_toggle()
+        #plt.show()
+        #plt.pause(1e-3)
         plt.savefig(plot_folder+"Sample_profiles_{}_{}_{}_{}_{}.png".format(run_id,i,now.hour,now.day,now.month))
-        plt.close("all")
+        plt.cla()
+        #plt.close("all")
     
     with open(run_file,"w") as f:
         f.write(str(run_id +1))
