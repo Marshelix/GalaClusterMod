@@ -218,7 +218,7 @@ if __name__ == "__main__":
                     counter = max([0,counter]) #keep > 0
                     
             if tf.reduce_mean(loss) < best_loss:
-                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(epoch,EPOCHS,datetime.now()-train_start,time_estimate_per_epoch*(EPOCHS-epoch),losses[-1], 100*counter/counter_max))
+                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(epoch,EPOCHS,datetime.now()-train_start,time_estimate_per_epoch*(EPOCHS-epoch),tf.reduce_mean(loss), 100*counter/counter_max))
                 best_loss = tf.reduce_mean(loss)
                 best_model = tf.keras.models.clone_model(model)
                 #best_model.save(".\\models\\Run_{}\\best_model".format(run_id))
