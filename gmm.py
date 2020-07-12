@@ -273,13 +273,13 @@ if __name__ == "__main__":
                 
     logging.info("Dumping data to {}".format(data_folder))
     now = datetime.now()
-    with open(data_folder+"MAE_Losses_{}_{}_{}.png".format(now.hour,now.day,now.month)) as f:
+    with open(data_folder+"MAE_Losses.png","wb") as f:
         pickle.dump(losses,f)
-    with open(data_folder+"MSE_Losses_{}_{}_{}.png".format(now.hour,now.day,now.month)) as f:
+    with open(data_folder+"MSE_Losses.png","wb") as f:
         pickle.dump(MSEs,f)
-    with open(data_folder+"Patience_{}_{}_{}.png".format(now.hour,now.day,now.month)) as f:
+    with open(data_folder+"Patience.png","wb") as f:
         pickle.dump(counters,f)
-    with open(data_folder+"overlap_{}_{}_{}.png".format(now.hour,now.day,now.month)) as f:
+    with open(data_folder+"overlap.png","wb") as f:
         pickle.dump(overlap_ratios,f)
     
     
@@ -338,7 +338,7 @@ if __name__ == "__main__":
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
     
     test_data = {"Profiles":t_s_renorm, "STDParams":{"Pi":pi_test,"Mu":mu_test,"Var":var_test},"Xtest":X_test}
-    with open(data_folder+"test_data_{}_{}_{}.png".format(now.hour,now.day,now.month)) as f:
+    with open(data_folder+"test_data.png","wb") as f:
         pickle.dump(test_data,f)
     
     
