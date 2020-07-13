@@ -52,24 +52,6 @@ import cProfile, pstats, io
 
 
 
-def profile(fnc):
-    
-    """A decorator that uses cProfile to profile a function"""
-    
-    def inner(*args, **kwargs):
-        
-        pr = cProfile.Profile()
-        pr.enable()
-        retval = fnc(*args, **kwargs)
-        pr.disable()
-        s = io.StringIO()
-        sortby = 'cumulative'
-        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
-        ps.print_stats()
-        print(s.getvalue())
-        return retval
-
-    return inner
 
 np.random.seed(42)
 tf.random.set_seed(42)
@@ -92,6 +74,25 @@ logging.basicConfig(
 '''
 
 '''
+
+def profile(fnc):
+    
+    """A decorator that uses cProfile to profile a function"""
+    
+    def inner(*args, **kwargs):
+        
+        pr = cProfile.Profile()
+        pr.enable()
+        retval = fnc(*args, **kwargs)
+        pr.disable()
+        s = io.StringIO()
+        sortby = 'cumulative'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats()
+        logging.info(s.getvalue())
+        return retval
+
+    return inner
 @profile
 def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_loss,test_parameters,test_profiles,t_a_r):
     best_model = model
@@ -100,6 +101,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     epoch = 1
     training_bool = epoch in range(EPOCHS)
     counter = 0
+    print_every = 1
     
     counters = []
     
@@ -111,6 +113,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     overlap_ratios = []
     minimum_delta = 5e-7
     diff = 0
+    loss_break = False
     
     logging.info("="*10+"Training info"+"="*10)
     logging.debug('Print every {} epochs'.format(print_every))
@@ -257,8 +260,8 @@ if __name__ == "__main__":
 
     
     losses = []
-    EPOCHS = 250
-    print_every = int(EPOCHS/100)
+    EPOCHS = 10
+    
     
     # Define model and optimizer
     model = tf.keras.models.Model(input, [pi, mu, var])

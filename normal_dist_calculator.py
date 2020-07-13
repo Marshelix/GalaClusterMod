@@ -14,6 +14,22 @@ import matplotlib.pyplot as plt
 import logging
 import scipy.stats
 import EinastoSim
+from datetime import datetime
+
+import cProfile, pstats, io
+import sys
+now = datetime.now()
+d_string = now.strftime("%d/%m/%Y, %H:%M:%S")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("logfile_{}_{}.log".format(now.day,now.month)),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
 
 class normDistGenerator:
     def __init__(self,mu,var):
@@ -90,6 +106,27 @@ def check_tensorflow_scipy_consistency(error_significance = 1e-5,test_dists = 10
     return fits
 
 
+
+def profile(fnc):
+    
+    """A decorator that uses cProfile to profile a function"""
+    
+    def inner(*args, **kwargs):
+        
+        pr = cProfile.Profile()
+        pr.enable()
+        retval = fnc(*args, **kwargs)
+        pr.disable()
+        s = io.StringIO()
+        sortby = 'cumulative'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats()
+        logging.info(s.getvalue())
+        return retval
+
+    return inner
+
+#@profile
 def generate_tensor_mixture_model(r_values, pi_values, mu_values, var_values):
     n,k = pi_values.shape
     n2,k2 = mu_values.shape
@@ -98,7 +135,9 @@ def generate_tensor_mixture_model(r_values, pi_values, mu_values, var_values):
     mixtures = []
     probabilities = []
     for mix_index in range(n):
-        probability_array = [pi_values[mix_index,kd]*tfp.distributions.normal.Normal(mu_values[mix_index,kd],var_values[mix_index,kd]).prob(r_values[mix_index]) for kd in range(k)]
+        probability_array = []
+        for kd in range(k):
+            probability_array.append(pi_values[mix_index,kd]*tfp.distributions.normal.Normal(mu_values[mix_index,kd],var_values[mix_index,kd]).prob(r_values[mix_index]))
         mixture = tf.add_n(probability_array)
         mixtures.append(mixture)
         probabilities.append(probability_array)
@@ -107,20 +146,20 @@ def generate_tensor_mixture_model(r_values, pi_values, mu_values, var_values):
     return tf.stack(mixtures),probabilities
 if __name__ == "__main__":
     plt.close("all")
-    generator_fits_scipy = check_scipy_consistency(test_dists = 5)
-    generator_fits_tensorflow = check_tensorflow_consistency(test_dists = 5)
+    #generator_fits_scipy = check_scipy_consistency(test_dists = 5)
+    #generator_fits_tensorflow = check_tensorflow_consistency(test_dists = 5)
     #sample a mixture model
     r = np.linspace(0,20,1000)
     pi_ = np.asarray([[abs(np.random.normal()) for i in range(4)]])
     pi_ = np.asarray([p/sum(p) for p in pi_])
     mu_ = np.asarray([np.random.choice(r,4)])
     var_ = np.asarray([[2.5*abs(np.random.normal()) for i in range(4)]])
-    mixture, probs = generate_tensor_mixture_model(r,pi_,mu_,var_)
+    mixture, probs = generate_tensor_mixture_model([r],pi_,mu_,var_)
     
     plt.figure()
     for kd in range(4):
-        plt.plot(r,probs[:][kd],label = "Density {}: pi = {}; mu = {}; var = {}".format(kd,pi_[0][kd],mu_[0][kd],var_[0][kd]))
-    plt.plot(r,mixture,label = "Mixture")
+        plt.plot(r,probs[0][kd],label = "Density {}: pi = {}; mu = {}; var = {}".format(kd,pi_[0][kd],mu_[0][kd],var_[0][kd]))
+    plt.plot(r,mixture[0],label = "Mixture")
     plt.legend()
     
     
@@ -138,11 +177,11 @@ if __name__ == "__main__":
     plt.plot(r,mixture, label = "Mixture")
     plt.plot(r,probs[0][0],label = "Density {}: pi = {}; mu = {}; var = {}".format(0,pis[0][0],mus[0][0],vari[0][0]))
 
-    plt.plot(r,probs[1][0],label = "Density {}: pi = {}; mu = {}; var = {}".format(1,pis[0][1],mus[0][1],vari[0][1]))
+    plt.plot(r,probs[0][1],label = "Density {}: pi = {}; mu = {}; var = {}".format(1,pis[0][1],mus[0][1],vari[0][1]))
 
-    plt.plot(r,probs[2][0],label = "Density {}: pi = {}; mu = {}; var = {}".format(2,pis[0][2],mus[0][2],vari[0][2]))
+    plt.plot(r,probs[0][2],label = "Density {}: pi = {}; mu = {}; var = {}".format(2,pis[0][2],mus[0][2],vari[0][2]))
 
-    plt.plot(r,probs[3][0],label = "Density {}: pi = {}; mu = {}; var = {}".format(3,pis[0][3],mus[0][3],vari[0][3]))
+    plt.plot(r,probs[0][3],label = "Density {}: pi = {}; mu = {}; var = {}".format(3,pis[0][3],mus[0][3],vari[0][3]))
     plt.legend()    
     
     
