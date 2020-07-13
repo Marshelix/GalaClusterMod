@@ -106,7 +106,7 @@ if __name__ == "__main__":
     # Network
     input = tf.keras.Input(shape=(l,))
     input_transfer_layer = tf.keras.layers.Dense(1,activation = None,dtype = tf.float64)
-    layer = tf.keras.layers.Dense(190, activation='tanh', name='baselayer',dtype = tf.float64)(input)
+    layer = tf.keras.layers.Dense(100, activation='tanh', name='baselayer',dtype = tf.float64)(input)
     mu = tf.keras.layers.Dense((k*out_dim), activation=None, name='mean_layer',dtype = tf.float64)(layer)
     # variance (should be greater than 0 so we exponentiate it)
     var_layer = tf.keras.layers.Dense((k*out_dim), activation=None, name='dense_var_layer')(layer)
@@ -149,7 +149,9 @@ if __name__ == "__main__":
     test_MAEs = []
     
     MSEs = []
-    train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
+    
+    n_test_profiles = 10
+    train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     ttp_logged = np.asarray([np.log(p) for p in train_testing_profile]).astype(np.float64)
     ttp_reparam = reparameterizer(ttp_logged)
     ttp_renormed = ttp_reparam.calculate_parameterization().astype(np.float64)#np.asarray(calculate_renorm_profiles(ttp_logged)).astype(np.float64)
@@ -201,7 +203,7 @@ if __name__ == "__main__":
                     counter = max([0,counter]) #keep > 0
                     
             if tf.reduce_mean(loss) < best_loss:
-                logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(epoch,EPOCHS,datetime.now()-train_start,time_estimate_per_epoch*(EPOCHS-epoch),tf.reduce_mean(loss), 100*counter/counter_max))
+                #logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(epoch,EPOCHS,datetime.now()-train_start,time_estimate_per_epoch*(EPOCHS-epoch),tf.reduce_mean(loss), 100*counter/counter_max))
                 best_loss = tf.reduce_mean(loss)
                 best_model = tf.keras.models.clone_model(model)
                 #best_model.save(".\\models\\Run_{}\\best_model".format(run_id))
@@ -213,19 +215,21 @@ if __name__ == "__main__":
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
         sample_preds, sample_probability_array = generate_tensor_mixture_model(t_a_r,pi_tt,mu_tt,var_tt)
         #sample_preds,sample_probability_array,_ = sample_predictions_tf_r(t_a_r,pi_tt,mu_tt,var_tt)
-        profile_sample = sample_preds[0]
-        mse_error_profiles = tf.losses.MSE(ttp_renormed[0],profile_sample)
+        mse_error_profiles = tf.reduce_mean(tf.losses.MSE(ttp_renormed,sample_preds))
         MSEs.append(mse_error_profiles)
         
         
-        mae_error_profiles_test = tf.losses.mean_absolute_error(profile_sample,ttp_renormed[0])
+        mae_error_profiles_test = tf.reduce_mean(tf.losses.mean_absolute_error(sample_preds,ttp_renormed))
         test_MAEs.append(mae_error_profiles_test)
         
         
         #calculate overlap
-        source_overlap = np.dot(np.transpose(ttp_renormed[0]),ttp_renormed[0]) #ignore constant multiplier
-        
-        overlap_ratio = source_overlap/tf.reduce_sum(profile_sample**2)
+        s_overlaps = []
+        sample_overlaps = []
+        for overlap_counter in range(n_test_profiles):    
+            s_overlaps.append(np.dot(np.transpose(ttp_renormed[overlap_counter]),ttp_renormed[overlap_counter])) #ignore constant multiplier
+            sample_overlaps.append(np.dot(np.transpose(sample_preds[overlap_counter]),sample_preds[overlap_counter]))
+        overlap_ratio = tf.reduce_mean([s_overlaps[current_overlap]/sample_overlaps[current_overlap] for current_overlap in range(len(s_overlaps))])
         overlap_ratios.append(overlap_ratio)
         
         
@@ -238,7 +242,7 @@ if __name__ == "__main__":
         training_bool = (epoch <= EPOCHS or not loss_break) if (counter//counter_max < 1) else False
         time_estimate_per_epoch = (datetime.now()-train_start)/epoch
         if epoch % print_every == 0:
-            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,time_estimate_per_epoch*(EPOCHS-epoch), losses[-1],100*counter/counter_max,mse_error_profiles, overlap_ratio))       
+            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, test loss{}; Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,time_estimate_per_epoch*(EPOCHS-epoch), losses[-1],mae_error_profiles_test,100*counter/counter_max,mse_error_profiles, overlap_ratio))       
         epoch = epoch+1
     
     logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(epoch, EPOCHS, 100*counter/counter_max, best_loss))
@@ -271,53 +275,7 @@ if __name__ == "__main__":
         pickle.dump(overlap_ratios,f)
     with open(data_folder+"mae_test_losses.dat","wb") as f:
         pickle.dump(test_MAEs,f)
-    
-    
-    
-    '''
-    
-    logging.info("Saving to plot folder: {}".format(plot_folder))
-    if not os.path.exists(plot_folder):
-        os.makedirs(plot_folder)
-    
-    now = datetime.now()
-    #plt.figure()
-    plt.plot(losses)
-    plt.title("MAE Loss")
-    plt.xlabel("Epoch")
-    plt.ylabel("NAE Loss")
-    plt.savefig(plot_folder+"Losses_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    #plt.close("all")
-    plt.cla()
-    
-    #plt.figure()
-    plt.plot(counters)
-    plt.title("Absolute Patience")
-    plt.xlabel("Epoch")
-    plt.ylabel("Patience")
-    plt.savefig(plot_folder+"Counter_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    #plt.close("all")
-    plt.cla()
-    
-    #plt.figure()
-    plt.plot(MSEs)
-    plt.title("MSE")
-    plt.xlabel("Epoch")
-    plt.ylabel("Pseudo MSE")
-    plt.savefig(plot_folder+"MSE_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    plt.cla()
-    #plt.close("all")
-    
-    #plt.figure()
-    plt.plot(overlap_ratios)
-    plt.title("Profile Overlap Ratios true/generated")
-    plt.xlabel("Epoch")
-    plt.ylabel("Overlap")
-    plt.savefig(plot_folder+"Overlap_{}_{}_{}.png".format(now.hour,now.day,now.month))
-    #plt.close("all")
-    plt.cla()
-    '''
-    n_test_profiles = 10
+
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
     t_s_reparam = reparameterizer(t_sample_profiles_logged)
@@ -330,36 +288,5 @@ if __name__ == "__main__":
     with open(data_folder+"test_data.dat","wb") as f:
         pickle.dump(test_data,f)
     
-    
-    sample_preds, sample_probability_array = generate_tensor_mixture_model(t_associated_r, pi_test,mu_test, var_test)
-    #sample_preds, sample_probability_array,sample_stat_inputs = sample_predictions_tf_r(t_associated_r,pi_test,mu_test,var_test)
-    '''
-    for i in range(n_test_profiles):
-        profile_sample = sample_preds[i,:]
-        test_prof = t_s_renorm[i]
-        #plt.figure()
-        plt.plot(t_associated_r[i],test_prof,label = "True profile")
-        
-        logging.debug("Parameters for {}: {}".format(i,EinastoSim.print_params_maggie(t_profile_params[i])))
-        #mng = plt.get_current_fig_manager()
-        
-        plt.plot(t_associated_r[i],profile_sample, label = "Sample")
-        #probability_arr = [pi_test[i][kd]/(tf.sqrt(2*np.pi*var_test[i][kd]))*tf.exp(-(1/(2*var_test[i][kd]))*((t_associated_r[i]-mu_test[i][kd])**2)) for kd in range(k)]
-        #constituent_probabilities = tf.stack(probability_arr)
-        for kd in range(k):
-            plt.plot(t_associated_r[i],sample_probability_array[i][kd],label = "Sampled Constituent {}".format(kd)) #plotting probabilities found in the method
-            #plt.plot(t_associated_r[i],constituent_probabilities[kd], label = "Constituent {}".format(kd))
-        #plt.plot(t_associated_r[i],tf.add_n(probability_arr),label = "Profile Addition")
-        plt.legend()
-        plt.title(EinastoSim.print_params_maggie(t_profile_params[i]).replace("\t",""))
-        plt.xlabel("Radius [Mpc]")
-        plt.ylabel("log({}) []".format(u"\u03C1"))
-        #mng.full_screen_toggle()
-        #plt.show()
-        #plt.pause(1e-3)
-        plt.savefig(plot_folder+"Sample_profiles_{}_{}_{}_{}_{}.png".format(run_id,i,now.hour,now.day,now.month))
-        plt.cla()
-        #plt.close("all")
-    '''
     with open(run_file,"w") as f:
         f.write(str(run_id +1))

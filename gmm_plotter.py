@@ -78,7 +78,7 @@ if __name__ == "__main__":
     plt.savefig(plot_folder+"Overlap_Ratios.png")
     plt.close("all")
     
-    with open(data_folder + "test_data.png","rb") as f:
+    with open(data_folder + "test_data.dat","rb") as f:
         test_data = pickle.load(f)
     t_s_renorm = test_data["Profiles"]
     pi_test = test_data["STDParams"]["Pi"]
@@ -108,7 +108,7 @@ if __name__ == "__main__":
         plt.ylabel("log({}) []".format(u"\u03C1"))
         mng.full_screen_toggle()
         plt.show()
-        plt.pause(1e-3)
+        plt.pause(1e-1)
         plt.savefig(plot_folder+"Sample_profiles_{}.png".format(i))
         plt.cla()
         plt.close("all")
