@@ -10,6 +10,10 @@ Recent changes:
     Remove plots from code, save raw data via pickle
 
 List of outstanding issues:
+    - Test convergence of train/test errors simultenaity
+    - Figure out crosschecks for model work
+    - Calculate those crosschecks
+    
     - Implement argument parsing for multitest
     
 """
@@ -73,7 +77,7 @@ if __name__ == "__main__":
     logging.info("="*20)
     logging.info("Starting new run #{} at {}".format(run_id,d_string))
     logging.info("="*20)
-    num_profile_train = 10000
+    num_profile_train = 400
     
 
     logging.info("Running on GPU: {}".format(tf.test.is_gpu_available()))
@@ -102,7 +106,7 @@ if __name__ == "__main__":
     # Network
     input = tf.keras.Input(shape=(l,))
     input_transfer_layer = tf.keras.layers.Dense(1,activation = None,dtype = tf.float64)
-    layer = tf.keras.layers.Dense(50, activation='tanh', name='baselayer',dtype = tf.float64)(input)
+    layer = tf.keras.layers.Dense(190, activation='tanh', name='baselayer',dtype = tf.float64)(input)
     mu = tf.keras.layers.Dense((k*out_dim), activation=None, name='mean_layer',dtype = tf.float64)(layer)
     # variance (should be greater than 0 so we exponentiate it)
     var_layer = tf.keras.layers.Dense((k*out_dim), activation=None, name='dense_var_layer')(layer)
@@ -112,12 +116,12 @@ if __name__ == "__main__":
 
     
     losses = []
-    EPOCHS = 5000
+    EPOCHS = 250
     print_every = int(EPOCHS/100)
     
     # Define model and optimizer
     model = tf.keras.models.Model(input, [pi, mu, var])
-    lr = 5e-4
+    lr = 1e-3
     wd = 0#1e-6
     
     optimizer = tf.keras.optimizers.Adam(lr)
@@ -141,6 +145,8 @@ if __name__ == "__main__":
     counters = []
     
     minimum_delta = 5e-7
+    
+    test_MAEs = []
     
     MSEs = []
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(1)
@@ -172,37 +178,14 @@ if __name__ == "__main__":
         for train_x, train_y in dataset:
             with tf.GradientTape() as tape:
                 pi_, mu_, var_ = model(train_x,training = True)
-                #print(pi_,mu_,var_)
-                # calculate loss
-                '''
-                It appears that calculating the profiles in function performs incorrectly...
-                
-                '''
                 sample, prob_array_training = generate_tensor_mixture_model(associated_r,pi_,mu_,var_)
-                '''
-                n,_ = pi_.shape
-                final_array = []
-                probability_array = [[] for pc in range(n)]
-                for i in range(n):
-                    prob = [pi_[i,kd]/(tf.sqrt(2*np.pi*var_[i][kd]))*tf.exp(-(1/2*var_[i][kd])*((associated_r[i]-mu_[i][kd])**2)) for kd in range(k)]
-                    probability_array[i] = prob
-                    # 4xn distribution list
-                    final_dist = tf.add_n(prob)
-                    final_array.append(final_dist)
-                sample = tf.stack(final_array)
-                prob_array_training = probability_array
-                '''
                 
-                #sample, prob_array_training,_ = sample_predictions_tf_r(associated_r,pi_,mu_,var_)
                 loss = tf.losses.mean_absolute_error(train_y,sample)
-                #mdn_loss(train_y, pi_, mu_, var_)
+                
             # compute and apply gradients
             gradients = tape.gradient(loss, model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, model.trainable_variables))
             
-            #loss = train_step(model, optimizer,train_x,train_y)
-            
-            #likelihood = np.exp(-tf.reduce_mean(loss).numpy())
             if tf.reduce_mean(loss) > best_loss:
                 counter += 1
             
@@ -233,6 +216,11 @@ if __name__ == "__main__":
         profile_sample = sample_preds[0]
         mse_error_profiles = tf.losses.MSE(ttp_renormed[0],profile_sample)
         MSEs.append(mse_error_profiles)
+        
+        
+        mae_error_profiles_test = tf.losses.mean_absolute_error(profile_sample,ttp_renormed[0])
+        test_MAEs.append(mae_error_profiles_test)
+        
         
         #calculate overlap
         source_overlap = np.dot(np.transpose(ttp_renormed[0]),ttp_renormed[0]) #ignore constant multiplier
@@ -273,15 +261,16 @@ if __name__ == "__main__":
                 
     logging.info("Dumping data to {}".format(data_folder))
     now = datetime.now()
-    with open(data_folder+"MAE_Losses.png","wb") as f:
+    with open(data_folder+"MAE_Losses.dat","wb") as f:
         pickle.dump(losses,f)
-    with open(data_folder+"MSE_Losses.png","wb") as f:
+    with open(data_folder+"MSE_Losses.dat","wb") as f:
         pickle.dump(MSEs,f)
-    with open(data_folder+"Patience.png","wb") as f:
+    with open(data_folder+"Patience.dat","wb") as f:
         pickle.dump(counters,f)
-    with open(data_folder+"overlap.png","wb") as f:
+    with open(data_folder+"overlap.dat","wb") as f:
         pickle.dump(overlap_ratios,f)
-    
+    with open(data_folder+"mae_test_losses.dat","wb") as f:
+        pickle.dump(test_MAEs,f)
     
     
     
@@ -337,7 +326,7 @@ if __name__ == "__main__":
     
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
     
-    test_data = {"Profiles":t_s_renorm, "STDParams":{"Pi":pi_test,"Mu":mu_test,"Var":var_test},"Xtest":X_test}
+    test_data = {"Profiles":t_s_renorm, "STDParams":{"Pi":pi_test,"Mu":mu_test,"Var":var_test},"Xtest":X_test, "r":t_associated_r}
     with open(data_folder+"test_data.png","wb") as f:
         pickle.dump(test_data,f)
     
