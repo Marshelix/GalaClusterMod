@@ -93,7 +93,7 @@ def profile(fnc):
         return retval
 
     return inner
-@profile
+#@profile
 def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_loss,test_parameters,test_profiles,t_a_r):
     best_model = model
     best_loss = np.inf
@@ -101,7 +101,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     epoch = 1
     training_bool = epoch in range(EPOCHS)
     counter = 0
-    print_every = 1
+    print_every = np.max([1, EPOCHS/100])
     
     counters = []
     
@@ -187,7 +187,11 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         
         loss_break = (best_loss.numpy() < loss_target)
         loss_break = loss_break or (diff < 0) 
-        training_bool = (epoch <= EPOCHS or not loss_break) if (counter//counter_max < 1) else False
+        
+        loss_divergence = abs(tf.reduce_mean(loss)-mae_error_profiles_test) > 0.15
+        
+        training_bool = (epoch <= EPOCHS or not (loss_break or loss_divergence)) if (counter//counter_max < 1) else False
+        
         time_estimate_per_epoch = (datetime.now()-train_start)/epoch
         if epoch % print_every == 0:
             logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss = {}, test loss = {}; Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,time_estimate_per_epoch*(EPOCHS-epoch), losses[-1],mae_error_profiles_test,100*counter/counter_max,mse_error_profiles, overlap_ratio))       
@@ -221,7 +225,7 @@ if __name__ == "__main__":
     logging.info("="*20)
     logging.info("Starting new run #{} at {}".format(run_id,d_string))
     logging.info("="*20)
-    num_profile_train = 400
+    num_profile_train = 1000
     
 
     logging.info("Running on GPU: {}".format(tf.test.is_gpu_available()))
@@ -260,7 +264,7 @@ if __name__ == "__main__":
 
     
     losses = []
-    EPOCHS = 10
+    EPOCHS = 1000
     
     
     # Define model and optimizer
@@ -281,7 +285,7 @@ if __name__ == "__main__":
     # Start training
     
     
-    n_test_profiles = 10
+    n_test_profiles = 500
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     ttp_logged = np.asarray([np.log(p) for p in train_testing_profile]).astype(np.float64)
     ttp_reparam = reparameterizer(ttp_logged)
