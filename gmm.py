@@ -10,7 +10,9 @@ Recent changes:
     Remove plots from code, save raw data via pickle
 
 List of outstanding issues:
-    - Test convergence of train/test errors simultenaity
+    - figure out a speedup
+    
+    - Test convergence of train/test errors simultenaity <- failed
     - Figure out crosschecks for model work
     - Calculate those crosschecks
     
@@ -41,6 +43,34 @@ from Reparameterizer import reparameterizer
 
 import pickle
 
+
+
+'''
+Profiling from https://osf.io/upav8/ by Sebastian Maathöt https://www.youtube.com/watch?v=8qEnExGLZfY
+'''
+import cProfile, pstats, io
+
+
+
+def profile(fnc):
+    
+    """A decorator that uses cProfile to profile a function"""
+    
+    def inner(*args, **kwargs):
+        
+        pr = cProfile.Profile()
+        pr.enable()
+        retval = fnc(*args, **kwargs)
+        pr.disable()
+        s = io.StringIO()
+        sortby = 'cumulative'
+        ps = pstats.Stats(pr, stream=s).sort_stats(sortby)
+        ps.print_stats()
+        print(s.getvalue())
+        return retval
+
+    return inner
+
 np.random.seed(42)
 tf.random.set_seed(42)
 plt.close("all")
@@ -62,6 +92,117 @@ logging.basicConfig(
 '''
 
 '''
+@profile
+def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_loss,test_parameters,test_profiles,t_a_r):
+    best_model = model
+    best_loss = np.inf
+    max_diff = 0.0  #differential loss
+    epoch = 1
+    training_bool = epoch in range(EPOCHS)
+    counter = 0
+    
+    counters = []
+    
+    test_MAEs = []
+    
+    MSEs = []
+    
+    
+    overlap_ratios = []
+    minimum_delta = 5e-7
+    diff = 0
+    
+    logging.info("="*10+"Training info"+"="*10)
+    logging.debug('Print every {} epochs'.format(print_every))
+    logging.info("Learning Parameters: lr = {} \t wd = {}".format(lr,wd))
+    logging.info("Patience: {} increases".format(counter_max))
+    logging.info("Minimum delta loss to not lose patience: {}".format(minimum_delta))
+    logging.info("Target loss: < {}".format(loss_target))
+    logging.info("# Samples: {}".format(n_test_profiles))
+    logging.info("# Training Profiles: {}".format(num_profile_train))
+    logging.info("Printing every {} epochs".format(print_every))
+    logging.info("="*(33))
+    train_start = datetime.now()
+    logging.info("Starting training at: {}".format(train_start))
+    time_estimate_per_epoch = np.inf
+    
+    while training_bool:
+        for train_x, train_y in dataset:
+            with tf.GradientTape() as tape:
+                pi_, mu_, var_ = model(train_x,training = True)
+                sample, prob_array_training = generate_tensor_mixture_model(associated_r,pi_,mu_,var_)    
+                loss = tf.losses.mean_absolute_error(train_y,sample)
+            gradients = tape.gradient(loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(gradients, model.trainable_variables))
+            
+            if tf.reduce_mean(loss) > best_loss:
+                counter += 1
+            
+            if len(losses) > 1:
+                diff = losses[-1] - losses[-2]
+                if diff < max_diff:
+                    counter += 1/num_batches
+                if diff < minimum_delta:
+                    counter += 1/num_batches
+                elif diff > max_diff + minimum_delta:
+                    max_diff = diff
+                    counter -= 1/num_batches #keep going if differential low enough, even if loss > min
+                    counter = max([0,counter]) #keep > 0
+                    
+            if tf.reduce_mean(loss) < best_loss:
+                best_loss = tf.reduce_mean(loss)
+                best_model = tf.keras.models.clone_model(model)
+                best_model.save_weights(".\\models\\weights\\Run_{}\\Run".format(run_id))
+                counter = 0
+        #append epoch loss
+        losses.append(tf.reduce_mean(loss))
+        #calculate mse
+        pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(test_parameters))
+        sample_preds, sample_probability_array = generate_tensor_mixture_model(t_a_r,pi_tt,mu_tt,var_tt)
+        #sample_preds,sample_probability_array,_ = sample_predictions_tf_r(t_a_r,pi_tt,mu_tt,var_tt)
+        mse_error_profiles = tf.reduce_mean(tf.losses.MSE(ttp_renormed,sample_preds))
+        MSEs.append(mse_error_profiles)
+        
+        
+        mae_error_profiles_test = tf.reduce_mean(tf.losses.mean_absolute_error(sample_preds,ttp_renormed))
+        test_MAEs.append(mae_error_profiles_test)
+        
+        
+        #calculate overlap
+        s_overlaps = []
+        sample_overlaps = []
+        for overlap_counter in range(n_test_profiles):    
+            s_overlaps.append(np.dot(np.transpose(ttp_renormed[overlap_counter]),ttp_renormed[overlap_counter])) #ignore constant multiplier
+            sample_overlaps.append(np.dot(np.transpose(sample_preds[overlap_counter]),sample_preds[overlap_counter]))
+        overlap_ratio = tf.reduce_mean([s_overlaps[current_overlap]/sample_overlaps[current_overlap] for current_overlap in range(len(s_overlaps))])
+        overlap_ratios.append(overlap_ratio)
+        
+        
+        counters.append(100*counter/counter_max)
+        
+        training_bool = epoch in range(EPOCHS)
+        
+        loss_break = (best_loss.numpy() < loss_target)
+        loss_break = loss_break or (diff < 0) 
+        training_bool = (epoch <= EPOCHS or not loss_break) if (counter//counter_max < 1) else False
+        time_estimate_per_epoch = (datetime.now()-train_start)/epoch
+        if epoch % print_every == 0:
+            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss = {}, test loss = {}; Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,time_estimate_per_epoch*(EPOCHS-epoch), losses[-1],mae_error_profiles_test,100*counter/counter_max,mse_error_profiles, overlap_ratio))       
+        epoch = epoch+1
+    
+    
+    logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(epoch, EPOCHS, 100*counter/counter_max, best_loss))
+    logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
+    score_file = "./scores.csv"
+    logging.info("Saving best score {} to {}".format(best_loss,score_file))
+    
+    score_df = pd.read_csv(score_file)
+    score_df["MAE"][run_id] = best_loss
+    score_df.to_csv(score_file)
+    
+    return best_model, losses,MSEs,counters,overlap_ratios,test_MAEs
+
+
     
 if __name__ == "__main__":
     run_file = "./runID.txt"
@@ -135,20 +276,7 @@ if __name__ == "__main__":
     .shuffle(N).batch(batchsize)
     
     # Start training
-    best_model = model
-    best_loss = np.inf
-    max_diff = 0.0  #differential loss
-    epoch = 1
-    training_bool = epoch in range(EPOCHS)
-    counter = 0
-    counter_max = 5000
-    counters = []
     
-    minimum_delta = 5e-7
-    
-    test_MAEs = []
-    
-    MSEs = []
     
     n_test_profiles = 10
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
@@ -157,106 +285,17 @@ if __name__ == "__main__":
     ttp_renormed = ttp_reparam.calculate_parameterization().astype(np.float64)#np.asarray(calculate_renorm_profiles(ttp_logged)).astype(np.float64)
     X_tt = tt_p_para#create_input_vectors(tt_p_para,t_a_r)
     
-    overlap_ratios = []
-    num_samples = 10
-    likelihood_minimum = 0.9
-    loss_target = 1e-3#-np.log(likelihood_minimum)
-    diff = 0
-    logging.info("="*10+"Training info"+"="*10)
-    logging.debug('Print every {} epochs'.format(print_every))
-    logging.info("Learning Parameters: lr = {} \t wd = {}".format(lr,wd))
-    logging.info("Patience: {} increases".format(counter_max))
-    logging.info("Minimum delta loss to not lose patience: {}".format(minimum_delta))
-    logging.info("Target loss: < {}".format(loss_target))
-    logging.info("# Samples: {}".format(num_samples))
-    logging.info("# Training Profiles: {}".format(num_profile_train))
-    logging.info("Printing every {} epochs".format(print_every))
-    logging.info("="*(33))
+    counter_max = 5000
     
-    train_start = datetime.now()
-    logging.info("Starting training at: {}".format(train_start))
-    time_estimate_per_epoch = np.inf
-    while training_bool:
-        for train_x, train_y in dataset:
-            with tf.GradientTape() as tape:
-                pi_, mu_, var_ = model(train_x,training = True)
-                sample, prob_array_training = generate_tensor_mixture_model(associated_r,pi_,mu_,var_)
-                
-                loss = tf.losses.mean_absolute_error(train_y,sample)
-                
-            # compute and apply gradients
-            gradients = tape.gradient(loss, model.trainable_variables)
-            optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-            
-            if tf.reduce_mean(loss) > best_loss:
-                counter += 1
-            
-            if len(losses) > 1:
-                diff = losses[-1] - losses[-2]
-                if diff < max_diff:
-                    counter += 1/num_batches
-                if diff < minimum_delta:
-                    counter += 1/num_batches
-                elif diff > max_diff + minimum_delta:
-                    max_diff = diff
-                    counter -= 1/num_batches #keep going if differential low enough, even if loss > min
-                    counter = max([0,counter]) #keep > 0
-                    
-            if tf.reduce_mean(loss) < best_loss:
-                #logging.info("Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; new best loss: {}; Patience: {} %".format(epoch,EPOCHS,datetime.now()-train_start,time_estimate_per_epoch*(EPOCHS-epoch),tf.reduce_mean(loss), 100*counter/counter_max))
-                best_loss = tf.reduce_mean(loss)
-                best_model = tf.keras.models.clone_model(model)
-                #best_model.save(".\\models\\Run_{}\\best_model".format(run_id))
-                best_model.save_weights(".\\models\\weights\\Run_{}\\Run".format(run_id))
-                counter = 0
-        #append epoch loss
-        losses.append(tf.reduce_mean(loss))
-        #calculate mse
-        pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(X_tt))
-        sample_preds, sample_probability_array = generate_tensor_mixture_model(t_a_r,pi_tt,mu_tt,var_tt)
-        #sample_preds,sample_probability_array,_ = sample_predictions_tf_r(t_a_r,pi_tt,mu_tt,var_tt)
-        mse_error_profiles = tf.reduce_mean(tf.losses.MSE(ttp_renormed,sample_preds))
-        MSEs.append(mse_error_profiles)
-        
-        
-        mae_error_profiles_test = tf.reduce_mean(tf.losses.mean_absolute_error(sample_preds,ttp_renormed))
-        test_MAEs.append(mae_error_profiles_test)
-        
-        
-        #calculate overlap
-        s_overlaps = []
-        sample_overlaps = []
-        for overlap_counter in range(n_test_profiles):    
-            s_overlaps.append(np.dot(np.transpose(ttp_renormed[overlap_counter]),ttp_renormed[overlap_counter])) #ignore constant multiplier
-            sample_overlaps.append(np.dot(np.transpose(sample_preds[overlap_counter]),sample_preds[overlap_counter]))
-        overlap_ratio = tf.reduce_mean([s_overlaps[current_overlap]/sample_overlaps[current_overlap] for current_overlap in range(len(s_overlaps))])
-        overlap_ratios.append(overlap_ratio)
-        
-        
-        counters.append(100*counter/counter_max)
-        
-        training_bool = epoch in range(EPOCHS)
-        
-        loss_break = (best_loss.numpy() < loss_target)# and (np.exp(-best_loss.numpy()) > likelihood_minimum) #equivalent frankly, just redundant
-        loss_break = loss_break or (diff < 0) 
-        training_bool = (epoch <= EPOCHS or not loss_break) if (counter//counter_max < 1) else False
-        time_estimate_per_epoch = (datetime.now()-train_start)/epoch
-        if epoch % print_every == 0:
-            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss {}, test loss{}; Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,time_estimate_per_epoch*(EPOCHS-epoch), losses[-1],mae_error_profiles_test,100*counter/counter_max,mse_error_profiles, overlap_ratio))       
-        epoch = epoch+1
+    loss_target = 1e-3
     
-    logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(epoch, EPOCHS, 100*counter/counter_max, best_loss))
-    logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
-    score_file = "./scores.csv"
-    logging.info("Saving best score {} to {}".format(best_loss,score_file))
+    best_model,losses,MSEs,counters,overlap_ratios,test_MAEs = train_model(model,optimizer,dataset,associated_r,EPOCHS,counter_max,loss_target,X_tt,ttp_renormed,t_a_r)
     
-    score_df = pd.read_csv(score_file)
-    score_df["MAE"][run_id] = best_loss
-    score_df.to_csv(score_file)
     
-    plot_folder = ".\\plots\\Run_{}\\".format(run_id)
-    save_folder = ".\\models\\Run_{}\\best_model".format(run_id)
-    data_folder = ".\\data\\Run_{}\\".format(run_id)
+    
+    plot_folder = ".//plots//Run_{}//".format(run_id)
+    save_folder = ".//models//Run_{}//best_model".format(run_id)
+    data_folder = ".//data//Run_{}//".format(run_id)
     if not os.path.exists(data_folder):
         os.makedirs(data_folder)
         
