@@ -24,9 +24,9 @@ if __name__ == "__main__":
             
     else:
         with open(run_file,"r") as f:
-            run_id = int(f.read()) -1
+            run_id = int(f.read()) -1 #do this for the latest available files
     data_folder = ".\\data\\Run_{}\\".format(run_id)
-    #do this for the latest file
+    
     with open(data_folder+"MAE_Losses.dat","rb") as f:
         losses = pickle.load(f)
     with open(data_folder+"MSE_Losses.dat","rb") as f:
@@ -53,16 +53,14 @@ if __name__ == "__main__":
     plt.legend()
     plt.savefig(plot_folder+"MAE_Losses.png")
     plt.close("all")
-    #plt.cla()
     
     plt.figure()
     plt.plot(counters)
-    plt.title("Absolute Patience")
+    plt.title("Patience")
     plt.xlabel("Epoch")
-    plt.ylabel("Patience")
+    plt.ylabel("Patience [%]")
     plt.savefig(plot_folder+"Patience_Counter.png")
     plt.close("all")
-    #plt.cla()
     
     plt.figure()
     plt.plot(MSEs)
@@ -70,7 +68,6 @@ if __name__ == "__main__":
     plt.xlabel("Epoch")
     plt.ylabel("Pseudo MSE")
     plt.savefig(plot_folder+"MSE_Losses.png")
-    #plt.cla()
     plt.close("all")
     
     plt.figure()
@@ -80,7 +77,6 @@ if __name__ == "__main__":
     plt.ylabel("Overlap")
     plt.savefig(plot_folder+"Overlap_Ratios.png")
     plt.close("all")
-    #plt.cla()
     
     with open(data_folder + "test_data.png","rb") as f:
         test_data = pickle.load(f)
@@ -100,16 +96,12 @@ if __name__ == "__main__":
         plt.figure()
         plt.plot(t_associated_r[i],test_prof,label = "True profile")
         
-        #logging.debug("Parameters for {}: {}".format(i,EinastoSim.print_params_maggie(t_profile_params[i])))
         mng = plt.get_current_fig_manager()
         
         plt.plot(t_associated_r[i],profile_sample, label = "Sample")
-        #probability_arr = [pi_test[i][kd]/(tf.sqrt(2*np.pi*var_test[i][kd]))*tf.exp(-(1/(2*var_test[i][kd]))*((t_associated_r[i]-mu_test[i][kd])**2)) for kd in range(k)]
-        #constituent_probabilities = tf.stack(probability_arr)
         for kd in range(k):
             plt.plot(t_associated_r[i],sample_probability_array[i][kd],label = "Sampled Constituent {}: pi: {}; mu: {}; var {}".format(kd,pi_test[i][kd],mu_test[i][kd],var_test[i][kd])) #plotting probabilities found in the method
-            #plt.plot(t_associated_r[i],constituent_probabilities[kd], label = "Constituent {}".format(kd))
-        #plt.plot(t_associated_r[i],tf.add_n(probability_arr),label = "Profile Addition")
+            
         plt.legend()
         plt.title(EinastoSim.print_params_maggie(X_test[i]).replace("\t",""))
         plt.xlabel("Radius [Mpc]")

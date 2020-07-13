@@ -229,7 +229,7 @@ if __name__ == "__main__":
         overlap_ratios.append(overlap_ratio)
         
         
-        counters.append(counter)
+        counters.append(100*counter/counter_max)
         
         training_bool = epoch in range(EPOCHS)
         
@@ -327,7 +327,7 @@ if __name__ == "__main__":
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
     
     test_data = {"Profiles":t_s_renorm, "STDParams":{"Pi":pi_test,"Mu":mu_test,"Var":var_test},"Xtest":X_test, "r":t_associated_r}
-    with open(data_folder+"test_data.png","wb") as f:
+    with open(data_folder+"test_data.dat","wb") as f:
         pickle.dump(test_data,f)
     
     
