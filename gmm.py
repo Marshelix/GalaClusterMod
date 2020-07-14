@@ -98,7 +98,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     best_model = model
     best_loss = np.inf
     max_diff = 0.0  #differential loss
-    epoch = start_parameters.get("epoch",0)
+    epoch = start_parameters.get("epoch",1)
     training_bool = epoch in range(EPOCHS)
     counter = start_parameters.get("counter",0)
     print_every = np.max([1, EPOCHS/100])
