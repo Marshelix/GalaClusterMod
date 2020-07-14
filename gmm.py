@@ -93,24 +93,24 @@ def profile(fnc):
         return retval
 
     return inner
-#@profile
-def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_loss,test_parameters,test_profiles,t_a_r):
+@profile
+def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_loss,test_parameters,test_profiles,t_a_r,start_parameters = {}):
     best_model = model
     best_loss = np.inf
     max_diff = 0.0  #differential loss
-    epoch = 1
+    epoch = start_parameters.get("epoch",0)
     training_bool = epoch in range(EPOCHS)
-    counter = 0
+    counter = start_parameters.get("counter",0)
     print_every = np.max([1, EPOCHS/100])
     
-    counters = []
+    counters = start_parameters.get("counters", [])
     
-    test_MAEs = []
+    test_MAEs = start_parameters.get("test_MAEs",[])
     
-    MSEs = []
+    MSEs = start_parameters.get("MSEs",[])
     
     
-    overlap_ratios = []
+    overlap_ratios = start_parameters.get("overlaps",[])
     minimum_delta = 5e-7
     diff = 0
     loss_break = False
@@ -188,9 +188,9 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         loss_break = (best_loss.numpy() < loss_target)
         loss_break = loss_break or (diff < 0) 
         
-        loss_divergence = abs(tf.reduce_mean(loss)-mae_error_profiles_test) > 0.15
+        loss_divergence = abs(tf.reduce_mean(loss)-mae_error_profiles_test) > 0.1
         
-        training_bool = (epoch <= EPOCHS or not (loss_break or loss_divergence)) if (counter//counter_max < 1) else False
+        training_bool = (epoch <= EPOCHS or not loss_break) if ((counter//counter_max < 1) and not loss_divergence) else False
         
         time_estimate_per_epoch = (datetime.now()-train_start)/epoch
         if epoch % print_every == 0:
@@ -199,7 +199,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     
     
     logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(epoch, EPOCHS, 100*counter/counter_max, best_loss))
-    logging.info("Reason for exiting: loss_break: {}, diff < 0: {}".format(loss_break,diff<0))
+    logging.info("Reason for exiting: loss_break: {}, diff < 0: {}, loss divergence: {}".format(loss_break,diff<0,loss_divergence))
     score_file = "./scores.csv"
     logging.info("Saving best score {} to {}".format(best_loss,score_file))
     
@@ -321,7 +321,8 @@ if __name__ == "__main__":
         pickle.dump(overlap_ratios,f)
     with open(data_folder+"mae_test_losses.dat","wb") as f:
         pickle.dump(test_MAEs,f)
-
+    
+    n_test_profiles = 10
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
     t_s_reparam = reparameterizer(t_sample_profiles_logged)

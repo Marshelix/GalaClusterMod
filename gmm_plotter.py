@@ -49,7 +49,7 @@ if __name__ == "__main__":
     plt.plot(test_MAEs, label = "Testing Error")
     plt.title("MAE Loss")
     plt.xlabel("Epoch")
-    plt.ylabel("NAE Loss")
+    plt.ylabel("MAE Loss")
     plt.legend()
     plt.savefig(plot_folder+"MAE_Losses.png")
     plt.close("all")
