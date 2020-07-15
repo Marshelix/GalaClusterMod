@@ -99,7 +99,7 @@ def generate_random_einasto_profile_maggie(rmax,r_granularity = r_gran_max):
     #print("{}".format([Mdelta, cdelta,delta,alpha,zl]))
     r = np.linspace(rmin_glob,rmax,int(r_granularity)) 
     profile = einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl)
-    return profile, [Mdelta, cdelta,delta,alpha,zl],r
+    return profile, [Mdelta, cdelta,alpha,zl],r
 def generate_n_random_einasto_profile_maggie(num_profiles,rmax = rmax_glob,r_granularity = r_gran_max):
     profiles = []
     profile_params = []
@@ -116,12 +116,12 @@ def generate_n_random_einasto_profile_maggie(num_profiles,rmax = rmax_glob,r_gra
     return profiles, profile_params,radii
 
 def print_params_maggie(parameters):
-    assert len(parameters) == 5, "Wrong amount of parameters inserted"
-    M = parameters[0]
+    assert len(parameters) == 4, "Wrong amount of parameters inserted"
+    M = parameters[0]*(10**14*Msol) 
     cdelta = parameters[1]
-    delta = parameters[2]
-    alpha = parameters[3]
-    zl = parameters[4]
+    delta = 200#parameters[2]
+    alpha = parameters[2]
+    zl = parameters[3]*0.9
     profile_string = "Parameters: \n \t M = {} Ms \n\t cdelta =  {} \n \t delta = {} \n \t alpha = {} \n \t z = {}".format(M,cdelta,delta,alpha,zl)
     print(profile_string)
     return profile_string    

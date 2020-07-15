@@ -39,7 +39,7 @@ from datetime import datetime
 import pandas as pd
 
 from normal_dist_calculator import generate_tensor_mixture_model
-from Reparameterizer import reparameterizer
+from Reparameterizer import reparameterizer, normalize_profiles,renormalize_profiles
 
 import pickle
 
@@ -49,9 +49,6 @@ import pickle
 Profiling from https://osf.io/upav8/ by Sebastian Maathöt https://www.youtube.com/watch?v=8qEnExGLZfY
 '''
 import cProfile, pstats, io
-
-
-
 
 np.random.seed(42)
 tf.random.set_seed(42)
@@ -93,7 +90,8 @@ def profile(fnc):
         return retval
 
     return inner
-@profile
+
+#@profile
 def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_loss,test_parameters,test_profiles,t_a_r,start_parameters = {}):
     best_model = model
     best_loss = np.inf
@@ -115,6 +113,8 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     diff = 0
     loss_break = False
     
+    max_loss_divergence = 2
+    
     logging.info("="*10+"Training info"+"="*10)
     logging.debug('Print every {} epochs'.format(print_every))
     logging.info("Learning Parameters: lr = {} \t wd = {}".format(lr,wd))
@@ -124,6 +124,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     logging.info("# Samples: {}".format(n_test_profiles))
     logging.info("# Training Profiles: {}".format(num_profile_train))
     logging.info("Printing every {} epochs".format(print_every))
+    logging.info("Maximum loss divergence: {}".format(max_loss_divergence))
     logging.info("="*(33))
     train_start = datetime.now()
     logging.info("Starting training at: {}".format(train_start))
@@ -162,11 +163,10 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         #calculate mse
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(test_parameters))
         sample_preds, sample_probability_array = generate_tensor_mixture_model(t_a_r,pi_tt,mu_tt,var_tt)
-        #sample_preds,sample_probability_array,_ = sample_predictions_tf_r(t_a_r,pi_tt,mu_tt,var_tt)
         mse_error_profiles = tf.reduce_mean(tf.losses.MSE(ttp_renormed,sample_preds))
         MSEs.append(mse_error_profiles)
         
-        
+        #mae to compare to train loss
         mae_error_profiles_test = tf.reduce_mean(tf.losses.mean_absolute_error(sample_preds,ttp_renormed))
         test_MAEs.append(mae_error_profiles_test)
         
@@ -188,7 +188,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         loss_break = (best_loss.numpy() < loss_target)
         loss_break = loss_break or (diff < 0) 
         
-        loss_divergence = abs(tf.reduce_mean(loss)-mae_error_profiles_test) > 0.1
+        loss_divergence = abs(tf.reduce_mean(loss)-mae_error_profiles_test) > max_loss_divergence if epoch > 1 else False
         
         training_bool = (epoch <= EPOCHS or not loss_break) if ((counter//counter_max < 1) and not loss_divergence) else False
         
@@ -204,7 +204,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     logging.info("Saving best score {} to {}".format(best_loss,score_file))
     
     score_df = pd.read_csv(score_file)
-    score_df["MAE"][run_id] = best_loss
+    score_df.at[run_id,"MAE"] = best_loss
     score_df.to_csv(score_file)
     
     return best_model, losses,MSEs,counters,overlap_ratios,test_MAEs
@@ -225,10 +225,10 @@ if __name__ == "__main__":
     logging.info("="*20)
     logging.info("Starting new run #{} at {}".format(run_id,d_string))
     logging.info("="*20)
-    num_profile_train = 1000
+    num_profile_train = 2000
     
 
-    logging.info("Running on GPU: {}".format(tf.test.is_gpu_available()))
+    logging.info("Running on GPU: {}".format(len(tf.config.experimental.list_physical_devices('GPU')) > 0))
     logging.info("Generating {} Profiles for training".format(num_profile_train))
     
     sample_profiles,profile_params,associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(num_profile_train)
@@ -240,7 +240,7 @@ if __name__ == "__main__":
     # remove log as test
     sample_profiles_logged = np.asarray([np.log(p) for p in sample_profiles]).astype(np.float64)
     sample_reparam = reparameterizer(sample_profiles_logged)
-    sample_profiles_renormed = sample_reparam.calculate_parameterization().astype(np.float64)#np.asarray(calculate_renorm_profiles(sample_profiles_logged)).astype(np.float64)
+    sample_profiles_renormed = normalize_profiles(sample_profiles_logged).astype(np.float64)#np.asarray(calculate_renorm_profiles(sample_profiles_logged)).astype(np.float64)
     
     X_full = profile_params#create_input_vectors(profile_params, associated_r) 
     X_full = np.asarray(X_full).astype(np.float64)
@@ -255,12 +255,12 @@ if __name__ == "__main__":
     input = tf.keras.Input(shape=(l,))
     input_transfer_layer = tf.keras.layers.Dense(1,activation = None,dtype = tf.float64)
     layer = tf.keras.layers.Dense(100, activation='tanh', name='baselayer',dtype = tf.float64)(input)
-    mu = tf.keras.layers.Dense((k*out_dim), activation=None, name='mean_layer',dtype = tf.float64)(layer)
+    mu = tf.keras.layers.Dense((k*out_dim), activation='exponential', name='mean_layer',dtype = tf.float64)(layer)
     # variance (should be greater than 0 so we exponentiate it)
     var_layer = tf.keras.layers.Dense((k*out_dim), activation=None, name='dense_var_layer')(layer)
     var = tf.keras.layers.Lambda(lambda x: tf.math.exp(x), output_shape=(k,), name='variance_layer',dtype = tf.float64)(var_layer)
     # mixing coefficient should sum to 1.0
-    pi = tf.keras.layers.Dense(k*out_dim, activation='softmax', name='pi_layer',dtype = tf.float64)(layer)
+    pi = tf.keras.layers.Dense(k*out_dim, activation='exponential', name='pi_layer',dtype = tf.float64)(layer)
 
     
     losses = []
@@ -289,7 +289,7 @@ if __name__ == "__main__":
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     ttp_logged = np.asarray([np.log(p) for p in train_testing_profile]).astype(np.float64)
     ttp_reparam = reparameterizer(ttp_logged)
-    ttp_renormed = ttp_reparam.calculate_parameterization().astype(np.float64)#np.asarray(calculate_renorm_profiles(ttp_logged)).astype(np.float64)
+    ttp_renormed = normalize_profiles(ttp_logged).astype(np.float64)#np.asarray(calculate_renorm_profiles(ttp_logged)).astype(np.float64)
     X_tt = tt_p_para#create_input_vectors(tt_p_para,t_a_r)
     
     counter_max = 5000
@@ -326,7 +326,7 @@ if __name__ == "__main__":
     test_profiles,t_profile_params,t_associated_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     t_sample_profiles_logged = np.asarray([np.log(p) for p in test_profiles]).astype(np.float64)
     t_s_reparam = reparameterizer(t_sample_profiles_logged)
-    t_s_renorm = t_s_reparam.calculate_parameterization().astype(np.float64)
+    t_s_renorm = normalize_profiles(t_sample_profiles_logged).astype(np.float64)
     X_test = t_profile_params#create_input_vectors(t_profile_params,t_associated_r)
     
     pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
