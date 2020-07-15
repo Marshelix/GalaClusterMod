@@ -91,15 +91,15 @@ def generate_set_einasto_profile(rmax, r_granularity, M200,z,alpha,r0,epsi,rho0,
 def generate_random_einasto_profile_maggie(rmax,r_granularity = r_gran_max):
     profile = []
     #normalized parameters
-    Mdelta = 10**(13)*(1+100*random.random())*Msol/(10**14*Msol) 
+    Mdelta = 10**(13)*(1+100*random.random())*Msol 
     cdelta = np.abs(random.normalvariate(1,1)) #random.random()
     delta = 200#random.random()/2
     alpha = np.clip(random.normalvariate(0.5,0.5),lowest_alpha_val,1)
-    zl = 0.6+(0.9*random.random())/0.9
+    zl = 0.6+(0.9*random.random())
     #print("{}".format([Mdelta, cdelta,delta,alpha,zl]))
     r = np.linspace(rmin_glob,rmax,int(r_granularity)) 
     profile = einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl)
-    return profile, [Mdelta, cdelta,alpha,zl],r
+    return profile, [Mdelta/(10**14*Msol), cdelta,alpha,zl/0.9],r
 def generate_n_random_einasto_profile_maggie(num_profiles,rmax = rmax_glob,r_granularity = r_gran_max):
     profiles = []
     profile_params = []
