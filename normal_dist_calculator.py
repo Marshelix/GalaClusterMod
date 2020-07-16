@@ -40,9 +40,6 @@ class normDistGenerator:
         self.mu = mu
         self.var = var
         pred = tf.dtypes.cast(1/tf.sqrt(2*np.pi*var), tf.float64)
-        #print(pred)
-        #r = r_values[0]
-        #print(tf.exp(-(1/(2*self.var))*(r - self.mu)**2))
         dist = [pred*tf.exp(-(1/(2*var))*(r - mu)**2) for r in r_values]
         return dist
     

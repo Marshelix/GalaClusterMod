@@ -41,6 +41,22 @@ Gnew = G*km2Mpc**3/Msol
 
 lowest_alpha_val = 1e-1
 
+def nfw_profile(R,Mdelta,cdelta,delta,zl,h = h, Om = Om_m, Ol = Om_l):
+    H0 = 100*h
+    Ez = np.sqrt(Om*(1+zl)**3+Ol)   #evolution parameter a'/a
+    rhocrit = (3*Ez**2)/(8*np.pi*Gnew)
+    rhodelta = delta*rhocrit
+    rdelta = ((3*Mdelta)/(4*np.pi*rhodelta))**(1.0/3.0)
+    rs =rdelta/cdelta
+    Anfw = np.log(1+cdelta)-(cdelta/(1+cdelta))
+    profile = []
+    for r in R:
+        x = r/rs
+        profile.append(rhodelta/(3*Anfw*x*(1/cdelta-x)**2))
+    return profile
+    
+
+
 def einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl,h = h,Om = Om_m, Ol = Om_l):
     '''
         Function based on code provided by Dr. Maggie Lieu. 
@@ -66,21 +82,17 @@ def einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl,h = h,Om = Om_m, Ol = Om_l):
     rdelta = ((3*Mdelta)/(4*np.pi*rhodelta))**(1.0/3.0)
     rs = rdelta/cdelta
     n = 1.0/alpha
-    
-    #print("{}".format([H0,Ez,rhocrit,rhodelta,rdelta,rs,n]))
-    
     #central density
     # ps=200.0*cdelta^3.0*((2.0*n)^(n))^3.0*alpha/(3.0*gamma(3.0*n)*(1.0-pgamma(q=(cdelta*(2.0*n)^n)^alpha, shape=3.0*n, lower = FALSE)))         #core density (dc)
-    #print("Before central density")
     first_mult =200.0*cdelta**3
     second_mult  = ((2.0*n)**n)**3
-    #print(second_mult)
     third_mult = alpha/(error_epsi + 3*math.gamma(3.0*n))
     fourth_mult = 1/(error_epsi + (1.0-stats.gamma.cdf((cdelta*(2.0*n)**n)**alpha,3.0*n))) 
     rho_cd  = first_mult*second_mult*third_mult*fourth_mult
-    #print("After central density")
+    
     rhomult = rho_cd*rhocrit
     return np.abs(rhomult*np.exp(-(r/rs*(2*n)**n)**alpha)) + error_epsi
+
 def generate_set_einasto_profile(rmax, r_granularity, M200,z,alpha,r0,epsi,rho0,k,hz):
     profile = []
     for r in np.linspace(rmin_glob,rmax,r_granularity):
@@ -88,6 +100,18 @@ def generate_set_einasto_profile(rmax, r_granularity, M200,z,alpha,r0,epsi,rho0,
         profile.append(pval)
     return profile
 
+def generate_random_nfw_profile(rmax,rmin = rmin_glob,r_granularity = r_gran_max):
+    profile = []
+    #normalized parameters
+    Mdelta = 10**(13)*(1+100*random.random())*Msol 
+    cdelta = np.abs(random.normalvariate(1,1)) #random.random()
+    delta = 200#random.random()/2
+    zl = 0.6+(0.9*random.random())
+    #print("{}".format([Mdelta, cdelta,delta,alpha,zl]))
+    r = np.linspace(rmin_glob,rmax,int(r_granularity)) 
+    profile = nfw_profile(r,Mdelta,cdelta,delta,zl)
+    return profile
+    
 def generate_random_einasto_profile_maggie(rmax,r_granularity = r_gran_max):
     profile = []
     #normalized parameters

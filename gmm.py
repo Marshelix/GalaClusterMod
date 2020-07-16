@@ -138,15 +138,15 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
                 loss = tf.losses.mean_absolute_error(train_y,sample)
             gradients = tape.gradient(loss, model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, model.trainable_variables))
-            
+            '''
+            Amend counter if: not better than the best loss, delta_loss < minimum_delta, delta_loss < max_diff(best delta so far)
+            Reset counter if best loss overcome
+            '''
             if tf.reduce_mean(loss) > best_loss:
-                counter += 1
-            
+                counter += 1/num_batches
             if len(losses) > 1:
                 diff = losses[-1] - losses[-2]
-                if diff < max_diff:
-                    counter += 1/num_batches
-                if diff < minimum_delta:
+                if diff < minimum_delta or diff < max_diff:
                     counter += 1/num_batches
                 elif diff > max_diff + minimum_delta:
                     max_diff = diff
@@ -158,7 +158,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
                 best_model = tf.keras.models.clone_model(model)
                 best_model.save_weights(".\\models\\weights\\Run_{}\\Run".format(run_id))
                 counter = 0
-        #append epoch loss
+        
         losses.append(tf.reduce_mean(loss))
         #calculate mse
         pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(test_parameters))
@@ -180,8 +180,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         overlap_ratio = tf.reduce_mean([s_overlaps[current_overlap]/sample_overlaps[current_overlap] for current_overlap in range(len(s_overlaps))])
         overlap_ratios.append(overlap_ratio)
         
-        
-        counters.append(100*counter/counter_max)
+        counters.append(100*counter/counter_max) #counter percentage
         
         training_bool = epoch in range(EPOCHS)
         
@@ -189,7 +188,10 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         loss_break = loss_break or (diff < 0) 
         
         loss_divergence = abs(tf.reduce_mean(loss)-mae_error_profiles_test) > max_loss_divergence if epoch > 1 else False
-        
+        '''
+        Continue training if epochs left or if current best loss is worse than the target
+        Stop training if training/test losses diverge or if patience lost
+        '''
         training_bool = (epoch <= EPOCHS or not loss_break) if ((counter//counter_max < 1) and not loss_divergence) else False
         
         time_estimate_per_epoch = (datetime.now()-train_start)/epoch
@@ -225,7 +227,7 @@ if __name__ == "__main__":
     logging.info("="*20)
     logging.info("Starting new run #{} at {}".format(run_id,d_string))
     logging.info("="*20)
-    num_profile_train = 2000
+    num_profile_train = 10000
     
 
     logging.info("Running on GPU: {}".format(len(tf.config.experimental.list_physical_devices('GPU')) > 0))
@@ -260,7 +262,7 @@ if __name__ == "__main__":
     var_layer = tf.keras.layers.Dense((k*out_dim), activation=None, name='dense_var_layer')(layer)
     var = tf.keras.layers.Lambda(lambda x: tf.math.exp(x), output_shape=(k,), name='variance_layer',dtype = tf.float64)(var_layer)
     # mixing coefficient should sum to 1.0
-    pi = tf.keras.layers.Dense(k*out_dim, activation='exponential', name='pi_layer',dtype = tf.float64)(layer)
+    pi = tf.keras.layers.Dense(k*out_dim, activation=None, name='pi_layer',dtype = tf.float64)(layer)
 
     
     losses = []
@@ -276,7 +278,7 @@ if __name__ == "__main__":
     model.summary()
     
     N = np.asarray(X_full).shape[0]
-    num_batches = 10
+    num_batches = 1
     batchsize = N//num_batches
     dataset = tf.data.Dataset \
     .from_tensor_slices((X_full, sample_profiles_renormed)) \
@@ -285,7 +287,7 @@ if __name__ == "__main__":
     # Start training
     
     
-    n_test_profiles = 500
+    n_test_profiles = 10000
     train_testing_profile, tt_p_para,t_a_r = EinastoSim.generate_n_random_einasto_profile_maggie(n_test_profiles)
     ttp_logged = np.asarray([np.log(p) for p in train_testing_profile]).astype(np.float64)
     ttp_reparam = reparameterizer(ttp_logged)
