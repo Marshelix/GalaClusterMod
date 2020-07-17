@@ -29,7 +29,7 @@ import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 import tensorflow as tf
-#import tensorflow_addons as tfa #AdamW
+import tensorflow_addons as tfa #AdamW
 import tensorflow_probability as tfp#normal dist
 from copy import deepcopy
 import sys
@@ -115,6 +115,9 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     
     max_loss_divergence = 2
     
+    avg_train_loss_diff = 0
+    avg_test_loss_diff = 0
+    
     logging.info("="*10+"Training info"+"="*10)
     logging.debug('Print every {} epochs'.format(print_every))
     logging.info("Learning Parameters: lr = {} \t wd = {}".format(lr,wd))
@@ -182,6 +185,14 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         
         counters.append(100*counter/counter_max) #counter percentage
         
+        
+        if len(test_MAEs) > 1:
+            tmae_diffs = test_MAEs[1:]-test_MAEs[:-1]
+            avg_test_loss_diff = np.mean(tmae_diffs)
+        if len(losses) > 1:
+            mae_diffs = losses[1:]-losses[:-1]
+            avg_train_loss_diff = np.mean(mae_diffs)
+        
         training_bool = epoch in range(EPOCHS)
         
         loss_break = (best_loss.numpy() < loss_target)
@@ -196,7 +207,7 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         
         time_estimate_per_epoch = (datetime.now()-train_start)/epoch
         if epoch % print_every == 0:
-            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss = {}, test loss = {}; Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,time_estimate_per_epoch*(EPOCHS-epoch), losses[-1],mae_error_profiles_test,100*counter/counter_max,mse_error_profiles, overlap_ratio))       
+            logging.info('Epoch {}/{}: Elapsed Time: {};Remaining Time estimate: {}; loss = {}, test loss = {};loss delta: {};test loss delta: {}; Patience: {} %; MSE: {}; overlap: {}'.format(epoch, EPOCHS,datetime.now() - train_start,time_estimate_per_epoch*(EPOCHS-epoch), losses[-1],mae_error_profiles_test,avg_train_loss_diff,avg_test_loss_diff,100*counter/counter_max,mse_error_profiles, overlap_ratio))       
         epoch = epoch+1
     
     
@@ -272,9 +283,9 @@ if __name__ == "__main__":
     # Define model and optimizer
     model = tf.keras.models.Model(input, [pi, mu, var])
     lr = 1e-3
-    wd = 0#1e-6
+    wd = 1e-6
     
-    optimizer = tf.keras.optimizers.Adam(lr)
+    optimizer = tfa.optimizers.AdamW(lr,wd)
     model.summary()
     
     N = np.asarray(X_full).shape[0]
