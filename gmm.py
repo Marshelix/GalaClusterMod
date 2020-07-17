@@ -187,10 +187,10 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         
         
         if len(test_MAEs) > 1:
-            tmae_diffs = test_MAEs[1:]-test_MAEs[:-1]
+            tmae_diffs = np.asarray(test_MAEs[1:])-np.asarray(test_MAEs[:-1])
             avg_test_loss_diff = np.mean(tmae_diffs)
         if len(losses) > 1:
-            mae_diffs = losses[1:]-losses[:-1]
+            mae_diffs = np.asarray(losses[1:])-np.asarray(losses[:-1])
             avg_train_loss_diff = np.mean(mae_diffs)
         
         training_bool = epoch in range(EPOCHS)
