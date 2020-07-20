@@ -10,7 +10,9 @@ Recent changes:
     Remove plots from code, save raw data via pickle
 
 List of outstanding issues:
-    - figure out a speedup
+    - Simulate single gaussian, train GDN on that
+    - Simulate multiple gaussian, fit GDN on that
+    Then move back to Einasto
     
     - Test convergence of train/test errors simultenaity <- failed
     - Figure out crosschecks for model work
@@ -29,7 +31,7 @@ import os
 os.environ['CUDA_VISIBLE_DEVICES'] = '0'
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
 import tensorflow as tf
-import tensorflow_addons as tfa #AdamW
+#import tensorflow_addons as tfa #AdamW
 import tensorflow_probability as tfp#normal dist
 from copy import deepcopy
 import sys
@@ -43,6 +45,7 @@ from Reparameterizer import reparameterizer, normalize_profiles,renormalize_prof
 
 import pickle
 
+import argparse
 
 
 '''
@@ -136,7 +139,8 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     while training_bool:
         for train_x, train_y in dataset:
             with tf.GradientTape() as tape:
-                pi_, mu_, var_ = model(train_x,training = True)
+                pi_, mu_, var_log = tf.split(model(train_x,training = True),3,1)
+                var_ = tf.exp(var_log)
                 sample, prob_array_training = generate_tensor_mixture_model(associated_r,pi_,mu_,var_)    
                 loss = tf.losses.mean_absolute_error(train_y,sample)
             gradients = tape.gradient(loss, model.trainable_variables)
@@ -164,7 +168,8 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         
         losses.append(tf.reduce_mean(loss))
         #calculate mse
-        pi_tt,mu_tt,var_tt = best_model.predict(np.asarray(test_parameters))
+        pi_tt,mu_tt,var_tt_log = tf.split(best_model.predict(np.asarray(test_parameters)),3,1)
+        var_tt = tf.exp(var_tt_log)
         sample_preds, sample_probability_array = generate_tensor_mixture_model(t_a_r,pi_tt,mu_tt,var_tt)
         mse_error_profiles = tf.reduce_mean(tf.losses.MSE(ttp_renormed,sample_preds))
         MSEs.append(mse_error_profiles)
@@ -187,10 +192,10 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         
         
         if len(test_MAEs) > 1:
-            tmae_diffs = np.asarray(test_MAEs[1:])-np.asarray(test_MAEs[:-1])
+            tmae_diffs = np.asarray(test_MAEs[:-1])-np.asarray(test_MAEs[1:])
             avg_test_loss_diff = np.mean(tmae_diffs)
         if len(losses) > 1:
-            mae_diffs = np.asarray(losses[1:])-np.asarray(losses[:-1])
+            mae_diffs = np.asarray(losses[:-1])-np.asarray(losses[1:])
             avg_train_loss_diff = np.mean(mae_diffs)
         
         training_bool = epoch in range(EPOCHS)
@@ -268,7 +273,7 @@ if __name__ == "__main__":
     input = tf.keras.Input(shape=(l,))
     input_transfer_layer = tf.keras.layers.Dense(1,activation = None,dtype = tf.float64)
     layer = tf.keras.layers.Dense(100, activation='tanh', name='baselayer',dtype = tf.float64)(input)
-    mu = tf.keras.layers.Dense((k*out_dim), activation='exponential', name='mean_layer',dtype = tf.float64)(layer)
+    mu = tf.keras.layers.Dense((k*out_dim), activation=None, name='mean_layer',dtype = tf.float64)(layer)
     # variance (should be greater than 0 so we exponentiate it)
     var_layer = tf.keras.layers.Dense((k*out_dim), activation=None, name='dense_var_layer')(layer)
     var = tf.keras.layers.Lambda(lambda x: tf.math.exp(x), output_shape=(k,), name='variance_layer',dtype = tf.float64)(var_layer)
@@ -281,11 +286,15 @@ if __name__ == "__main__":
     
     
     # Define model and optimizer
-    model = tf.keras.models.Model(input, [pi, mu, var])
+    model = tf.keras.Sequential([input, 
+                                  tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer',dtype = tf.float64),
+                                  tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer2',dtype = tf.float64),
+                                  tf.keras.layers.Dense(3*k*out_dim,activation = None, name = "End_Layer")])
+    #tf.keras.models.Model(input, [pi, mu, var])
     lr = 1e-3
-    wd = 1e-6
+    wd = 0#1e-6
     
-    optimizer = tfa.optimizers.AdamW(lr,wd)
+    optimizer = tf.optimizers.Adam(lr)#tfa.optimizers.AdamW(lr,wd)
     model.summary()
     
     N = np.asarray(X_full).shape[0]
@@ -342,8 +351,8 @@ if __name__ == "__main__":
     t_s_renorm = normalize_profiles(t_sample_profiles_logged).astype(np.float64)
     X_test = t_profile_params#create_input_vectors(t_profile_params,t_associated_r)
     
-    pi_test, mu_test,var_test = best_model.predict(np.asarray(X_test))
-    
+    pi_test, mu_test,var_test_log = tf.split(best_model.predict(np.asarray(X_test)),3,1)
+    var_test = tf.exp(var_test_log)
     test_data = {"Profiles":t_s_renorm, "STDParams":{"Pi":pi_test,"Mu":mu_test,"Var":var_test},"Xtest":X_test, "r":t_associated_r}
     with open(data_folder+"test_data.dat","wb") as f:
         pickle.dump(test_data,f)

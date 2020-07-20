@@ -11,6 +11,8 @@ import h5py
 import random
 import math
 from scipy import stats
+import tensorflow as tf
+import tensorflow_probability as tfp
 '''
 Task:
         Generate M200, z, r, alpha randomly
@@ -55,6 +57,41 @@ def nfw_profile(R,Mdelta,cdelta,delta,zl,h = h, Om = Om_m, Ol = Om_l):
         profile.append(rhodelta/(3*Anfw*x*(1/cdelta-x)**2))
     return profile
     
+
+
+
+def generate_n_k_gaussians(rs,n = 1,kg = 1):
+    '''
+    Similar to generate profiles, generates n gaussian mixtures of kg gaussians. Keeping kg = 1 for now.
+    '''
+    gaussians = []
+    generators = []
+    for gaussian in range(n):
+        r = rs[gaussian % len(rs)]
+        mus = [np.random.uniform(-1.0,1.0) for k in range(kg)]
+        var = [np.random.uniform(0.0,1.0) for k in range(kg)]
+        pis = [np.random.rand() for k in range(kg)]
+        pis = [cp/np.sum(pis) for cp in pis]
+        current_sub_gaussians = []
+        for kc in range(kg):
+            current_sub_gaussians.append(pis[kc]*generate_gaussian(r,mus[kc],var[kc]))
+        generators.append(current_sub_gaussians)
+        gaussians.append(tf.add_n(current_sub_gaussians)+error_epsi)
+    return np.asarray(gaussians),np.asarray(generators)
+def generate_n_k_gaussian_parameters(rs,n = 1,kg = 1):
+    gaussians,generators = generate_n_k_gaussians(rs,n,kg)
+    parameters = []
+    for i in range(len(gaussians)):
+        profile =gaussians[i%len(rs)]
+        r = rs[i]
+        mu = r[np.argmax(profile)-1]
+        std = np.sqrt(np.sum((np.asarray(r)-mu)**2)/len(r))
+        parameters.append([mu,std])
+    parameters = np.asarray(parameters)
+    return gaussians, parameters,generators
+def generate_gaussian(r,mu,var):
+    return tfp.distributions.Normal(mu,var).prob(r)
+
 
 
 def einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl,h = h,Om = Om_m, Ol = Om_l):

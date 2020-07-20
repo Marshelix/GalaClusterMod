@@ -15,6 +15,11 @@ import os
 import EinastoSim
 
 if __name__ == "__main__":
+    
+    mode = ""
+    while mode not in ["density","normal","d","n"]:
+        mode = input("Input one of {}:".format(["density","normal","d","n"]))
+    
     run_file = "./runID.txt"
     run_id = -1
     if not os.path.isfile(run_file):
@@ -25,7 +30,11 @@ if __name__ == "__main__":
     else:
         with open(run_file,"r") as f:
             run_id = int(f.read()) -1 #do this for the latest available files
-    data_folder = ".\\data\\Run_{}\\".format(run_id)
+    if mode in ["density","d"]:
+        data_folder = ".\\data\\Run_{}\\".format(run_id)
+    else:
+        data_folder = ".\\data\\gauss\\"
+    
     
     with open(data_folder+"MAE_Losses.dat","rb") as f:
         losses = pickle.load(f)
@@ -33,8 +42,8 @@ if __name__ == "__main__":
         MSEs = pickle.load(f)
     with open(data_folder+"Patience.dat","rb") as f:
         counters = pickle.load(f)
-    with open(data_folder+"overlap.dat","rb") as f:
-        overlap_ratios = pickle.load(f)
+    #with open(data_folder+"overlap.dat","rb") as f:
+    #    overlap_ratios = pickle.load(f)
     
     with open(data_folder+"mae_test_losses.dat","rb") as f:
         test_MAEs = pickle.load(f)
@@ -70,13 +79,13 @@ if __name__ == "__main__":
     plt.savefig(plot_folder+"MSE_Losses.png")
     plt.close("all")
     
-    plt.figure()
-    plt.plot(overlap_ratios)
-    plt.title("Profile Overlap Ratios true/generated")
-    plt.xlabel("Epoch")
-    plt.ylabel("Overlap")
-    plt.savefig(plot_folder+"Overlap_Ratios.png")
-    plt.close("all")
+    #plt.figure()
+    #plt.plot(overlap_ratios)
+    #plt.title("Profile Overlap Ratios true/generated")
+    #plt.xlabel("Epoch")
+    #plt.ylabel("Overlap")
+    #plt.savefig(plot_folder+"Overlap_Ratios.png")
+    #plt.close("all")
     
     with open(data_folder + "test_data.dat","rb") as f:
         test_data = pickle.load(f)
