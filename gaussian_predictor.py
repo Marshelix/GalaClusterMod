@@ -53,7 +53,7 @@ logging.basicConfig(
 
 
 if __name__ == "__main__":
-    num_profile_train = 100
+    num_profile_train = 2000
     kg = 1
     logging.info("Running on GPU: {}".format(len(tf.config.experimental.list_physical_devices('GPU')) > 0))
     logging.info("Generating {} Profiles with {} distribution for training".format(num_profile_train, kg))
@@ -70,7 +70,7 @@ if __name__ == "__main__":
     X_full = np.asarray(X_full).astype(np.float64)
     
     losses = []
-    EPOCHS = 100
+    EPOCHS = 500
     
     l = len(X_full[0])
     
