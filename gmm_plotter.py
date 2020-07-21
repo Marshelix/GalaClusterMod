@@ -31,9 +31,9 @@ if __name__ == "__main__":
         with open(run_file,"r") as f:
             run_id = int(f.read()) -1 #do this for the latest available files
     if mode in ["density","d"]:
-        data_folder = ".\\data\\Run_{}\\".format(run_id)
+        data_folder = ".//data//Run_{}//".format(run_id)
     else:
-        data_folder = ".\\data\\gauss\\"
+        data_folder = ".//data//gauss//"
     
     
     with open(data_folder+"MAE_Losses.dat","rb") as f:
@@ -48,7 +48,8 @@ if __name__ == "__main__":
     with open(data_folder+"mae_test_losses.dat","rb") as f:
         test_MAEs = pickle.load(f)
     
-    plot_folder = ".\\plots\\Run_{}\\".format(run_id)
+    plot_folder = ".//plots//Run_{}//".format(run_id) if mode in ["d","density"] else ".//plots//gauss//"
+    
     if not os.path.exists(plot_folder):
         os.makedirs(plot_folder)
     
@@ -112,7 +113,7 @@ if __name__ == "__main__":
             plt.plot(t_associated_r[i],sample_probability_array[i][kd],label = "Sampled Constituent {}: pi: {}; mu: {}; var {}".format(kd,pi_test[i][kd],mu_test[i][kd],var_test[i][kd])) #plotting probabilities found in the method
             
         plt.legend()
-        plt.title(EinastoSim.print_params_maggie(X_test[i]).replace("\t",""))
+        #plt.title(EinastoSim.print_params_maggie(X_test[i]).replace("\t",""))
         plt.xlabel("Radius [Mpc]")
         plt.ylabel("log({}) []".format(u"\u03C1"))
         mng.full_screen_toggle()

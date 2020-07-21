@@ -53,20 +53,20 @@ logging.basicConfig(
 
 
 if __name__ == "__main__":
-    num_profile_train = 2000
+    num_profile_train = 100
     kg = 1
     logging.info("Running on GPU: {}".format(len(tf.config.experimental.list_physical_devices('GPU')) > 0))
     logging.info("Generating {} Profiles with {} distribution for training".format(num_profile_train, kg))
     r = np.linspace(-10,10,1001)
     rs = np.asarray([r for i in range(num_profile_train)])
     gaussians, parameters,constituents_train = EinastoSim.generate_n_k_gaussian_parameters(rs,num_profile_train,kg)
-    #gaussians = np.asarray([np.log(p) for p in gaussians])
+    
     logging.info("Defining backend type: TF.float64")
     tf.keras.backend.set_floatx("float64")
     logging.info("Running Logged renormalized Profiles.")
     
     #no need to log or normalize,already consists of gaussians
-    X_full = parameters#create_input_vectors(profile_params, associated_r) 
+    X_full = parameters
     X_full = np.asarray(X_full).astype(np.float64)
     
     losses = []
@@ -80,8 +80,9 @@ if __name__ == "__main__":
     k = 4
     
     logging.info("Running {} dimensions on {} distributions".format(out_dim,k))
+    
+    '''
     # Define initial Model
-    input = tf.keras.Input(shape=(l,))
     input_transfer_layer = tf.keras.layers.Dense(1,activation = None,dtype = tf.float64)
     layer = tf.keras.layers.Dense(50, activation='tanh', name='baselayer',dtype = tf.float64)(input)
     mu = tf.keras.layers.Dense((k*out_dim), activation=None, name='mean_layer',dtype = tf.float64)(layer)
@@ -91,17 +92,12 @@ if __name__ == "__main__":
     # mixing coefficient should sum to 1.0
     pi = tf.keras.layers.Dense(k*out_dim, activation=None, name='pi_layer',dtype = tf.float64)(layer)
     model = tf.keras.models.Model(input, [pi, mu, var])
+    '''
     
-    
-    model2 = tf.keras.Sequential([input, 
+    model2 = tf.keras.Sequential([tf.keras.Input(shape=(l,)), 
                                   tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer',dtype = tf.float64),
                                   tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer2',dtype = tf.float64),
                                   tf.keras.layers.Dense(3*k*out_dim,activation = None, name = "End_Layer")])
-    
-    
-    
-    #define secondary model: similar to above, one output vector, split into subvectors, running functions on pi, var
-    
     
     
     # Define model and optimizer
@@ -109,7 +105,7 @@ if __name__ == "__main__":
     wd = 0#1e-6
     
     optimizer = tf.optimizers.Adam(lr)#tfa.optimizers.AdamW(lr,wd)
-    model.summary()
+    #model.summary()
     model2.summary()
     
     N = np.asarray(X_full).shape[0]
@@ -120,7 +116,7 @@ if __name__ == "__main__":
     .shuffle(N).batch(batchsize)
     
     # Start training
-    n_test_profiles = 1000
+    n_test_profiles = 100
     test_gaussians, test_params,_ = EinastoSim.generate_n_k_gaussian_parameters(rs,n_test_profiles, kg)
     #test_gaussians = np.asarray([np.log(p) for p in test_gaussians])
     X_tt = test_params
@@ -128,7 +124,7 @@ if __name__ == "__main__":
     
     loss_target = 1e-3
     
-    best_model = model
+    best_model = model2
     best_loss = np.inf
     max_diff = 0.0  #differential loss
     start_parameters = {}
@@ -144,7 +140,7 @@ if __name__ == "__main__":
     
     MSEs = start_parameters.get("MSEs",[])
     
-    minimum_delta = 5e-7
+    minimum_delta = 3e-5
     diff = 0
     loss_break = False
     
@@ -152,6 +148,8 @@ if __name__ == "__main__":
     
     avg_train_loss_diff = 0
     avg_test_loss_diff = 0
+    
+    rolling_mean_length = 10
     
     logging.info("="*10+"Training info"+"="*10)
     logging.debug('Print every {} epochs'.format(print_every))
@@ -163,6 +161,7 @@ if __name__ == "__main__":
     logging.info("# Training Profiles: {}".format(num_profile_train))
     logging.info("Printing every {} epochs".format(print_every))
     logging.info("Maximum loss divergence: {}".format(max_loss_divergence))
+    logging.info("Maximum length values taken into account: {}".format(rolling_mean_length))
     logging.info("="*(33))
     train_start = datetime.now()
     logging.info("Starting training at: {}".format(train_start))
@@ -174,7 +173,7 @@ if __name__ == "__main__":
                 #pi_, mu_, var_ = model(train_x,training = True)
                 prediction_vector = model2(train_x,training = True)
                 pi_un,mu_,var_log = tf.split(prediction_vector,3,1)
-                pi_ = pi_un#tf.sigmoid(pi_un)
+                pi_ = tf.sigmoid(pi_un)
                 var_ = tf.exp(var_log)
                 sample, prob_array_training = generate_tensor_mixture_model(rs,pi_,mu_,var_)    
                 loss = tf.losses.mean_absolute_error(train_y,sample)
@@ -204,7 +203,7 @@ if __name__ == "__main__":
         losses.append(tf.reduce_mean(loss))
         #calculate mse
         pi_tt_base,mu_tt,var_tt_log = tf.split(best_model.predict(np.asarray(X_tt)),3,1)
-        pi_tt = pi_tt_base#tf.sigmoid(pi_tt_base)
+        pi_tt = tf.sigmoid(pi_tt_base)
         var_tt = tf.exp(var_tt_log)
         sample_preds, sample_probability_array = generate_tensor_mixture_model(rs,pi_tt,mu_tt,var_tt)
         mse_error_profiles = tf.reduce_mean(tf.losses.MSE(test_gaussians,sample_preds))
@@ -220,10 +219,12 @@ if __name__ == "__main__":
         
         if len(test_MAEs) > 1:
             tmae_diffs = np.asarray(test_MAEs[1:])-np.asarray(test_MAEs[:-1])
-            avg_test_loss_diff = np.mean(tmae_diffs)
+            max_tmae_idx = min(len(tmae_diffs),rolling_mean_length)
+            avg_test_loss_diff = np.mean(tmae_diffs[-max_tmae_idx:])
         if len(losses) > 1:
             mae_diffs = np.asarray(losses[1:])-np.asarray(losses[:-1])
-            avg_train_loss_diff = np.mean(mae_diffs)
+            max_mae_idx = min(len(mae_diffs),rolling_mean_length)
+            avg_train_loss_diff = np.mean(mae_diffs[-max_mae_idx:])
         
         training_bool = epoch in range(EPOCHS)
         
@@ -246,7 +247,7 @@ if __name__ == "__main__":
     logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(epoch, EPOCHS, 100*counter/counter_max, best_loss))
     logging.info("Reason for exiting: loss_break: {}, diff < 0: {}, loss divergence: {}".format(loss_break,diff<0,loss_divergence))
     
-    data_folder = ".\\data\\gauss\\"
+    data_folder = ".//data//gauss//"
     if not os.path.exists(data_folder):
         os.makedirs(data_folder)
     logging.info("Dumping data to {}".format(data_folder))
@@ -261,49 +262,15 @@ if __name__ == "__main__":
         pickle.dump(test_MAEs,f)
     
     
-    '''
-    plt.figure()
-    plt.plot(losses, label = "Training Loss")
-    plt.plot(test_MAEs, label = "Test  Loss")
-    plt.legend()
-    plt.title("Losses")
-    plt.ylabel("MAE")
-    plt.xlabel("Epoch")
-    '''
     
     n_test_profiles = 10
     test_gauss,test_params,generators = EinastoSim.generate_n_k_gaussian_parameters(rs,n_test_profiles,kg)
     #test_gauss = np.asarray([np.log(p) for p in test_gauss])
     X_test = test_params
     pi_test_base, mu_test,var_test_log = tf.split(best_model.predict(np.asarray(X_test)),3,1)
-    pi_test = pi_test_base#tf.sigmoid(pi_test_base)
+    pi_test = tf.sigmoid(pi_test_base)
     var_test = tf.exp(var_test_log)
     sample_preds, sample_probability_array = generate_tensor_mixture_model(rs, pi_test,mu_test, var_test)
     test_data = {"Profiles":test_gauss, "STDParams":{"Pi":pi_test,"Mu":mu_test,"Var":var_test},"Xtest":X_test, "r":rs}
     with open(data_folder+"test_data.dat","wb") as f:
         pickle.dump(test_data,f)
-    '''    
-    plt_gen = False
-    
-    for i in range(n_test_profiles):
-        profile_sample = sample_preds[i,:]
-        test_prof = test_gauss[i]
-        plt.figure()
-        plt.plot(rs[i],test_prof,label = "True profile - mu {} var {}".format(test_params[i][0],test_params[i][1]))
-        
-        mng = plt.get_current_fig_manager()
-        
-        plt.plot(r,profile_sample, label = "Sample")
-        for kd in range(k):
-            plt.plot(r,sample_probability_array[i][kd],label = "Sampled Constituent {}: pi: {}; mu: {}; var {}".format(kd,pi_test[i][kd],mu_test[i][kd],var_test[i][kd])) #plotting probabilities found in the method
-        if plt_gen:
-            for gen in range(kg):
-                plt.plot(r,generators[i][gen],label = "Generator {}".format(gen))
-        plt.legend()
-        plt.title("Loss: {}".format(tf.losses.mean_absolute_error(test_prof, profile_sample)))
-        plt.xlabel("Radius")
-        plt.ylabel("Density {} []".format(u"\u03C1"))
-        mng.full_screen_toggle()
-        plt.show()
-        plt.pause(1e-1)
-    '''
