@@ -116,10 +116,13 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     diff = 0
     loss_break = False
     
-    max_loss_divergence = 2
+    max_loss_divergence = 1
     
     avg_train_loss_diff = 0
     avg_test_loss_diff = 0
+    
+    rolling_mean_length = 10
+    
     
     logging.info("="*10+"Training info"+"="*10)
     logging.debug('Print every {} epochs'.format(print_every))
@@ -131,10 +134,13 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
     logging.info("# Training Profiles: {}".format(num_profile_train))
     logging.info("Printing every {} epochs".format(print_every))
     logging.info("Maximum loss divergence: {}".format(max_loss_divergence))
+    logging.info("Maximum length values taken into account: {}".format(rolling_mean_length))
     logging.info("="*(33))
     train_start = datetime.now()
     logging.info("Starting training at: {}".format(train_start))
     time_estimate_per_epoch = np.inf
+    
+    
     
     while training_bool:
         for train_x, train_y in dataset:
@@ -192,11 +198,13 @@ def train_model(model,optimizer,dataset,associated_r,EPOCHS,max_patience,target_
         
         
         if len(test_MAEs) > 1:
-            tmae_diffs = np.asarray(test_MAEs[:-1])-np.asarray(test_MAEs[1:])
-            avg_test_loss_diff = np.mean(tmae_diffs)
+            tmae_diffs = np.asarray(test_MAEs[1:])-np.asarray(test_MAEs[:-1])
+            max_tmae_idx = min(len(tmae_diffs),rolling_mean_length)
+            avg_test_loss_diff = np.mean(tmae_diffs[-max_tmae_idx:])
         if len(losses) > 1:
-            mae_diffs = np.asarray(losses[:-1])-np.asarray(losses[1:])
-            avg_train_loss_diff = np.mean(mae_diffs)
+            mae_diffs = np.asarray(losses[1:])-np.asarray(losses[:-1])
+            max_mae_idx = min(len(mae_diffs),rolling_mean_length)
+            avg_train_loss_diff = np.mean(mae_diffs[-max_mae_idx:])
         
         training_bool = epoch in range(EPOCHS)
         
@@ -288,6 +296,7 @@ if __name__ == "__main__":
     # Define model and optimizer
     model = tf.keras.Sequential([input, 
                                   tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer',dtype = tf.float64),
+                                  tf.keras.layers.Dropout(0.4,dtype = tf.float64),
                                   tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer2',dtype = tf.float64),
                                   tf.keras.layers.Dense(3*k*out_dim,activation = None, name = "End_Layer")])
     #tf.keras.models.Model(input, [pi, mu, var])
@@ -314,7 +323,7 @@ if __name__ == "__main__":
     ttp_renormed = normalize_profiles(ttp_logged).astype(np.float64)#np.asarray(calculate_renorm_profiles(ttp_logged)).astype(np.float64)
     X_tt = tt_p_para#create_input_vectors(tt_p_para,t_a_r)
     
-    counter_max = 5000
+    counter_max = 500
     
     loss_target = 1e-3
     

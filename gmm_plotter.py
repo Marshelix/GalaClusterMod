@@ -20,7 +20,7 @@ if __name__ == "__main__":
     while mode not in ["density","normal","d","n"]:
         mode = input("Input one of {}:".format(["density","normal","d","n"]))
     
-    run_file = "./runID.txt"
+    run_file = "./runID.txt" if mode in ["density","d"] else "./runID_gauss.txt"
     run_id = -1
     if not os.path.isfile(run_file):
         with open(run_file,"w") as f:
@@ -33,7 +33,7 @@ if __name__ == "__main__":
     if mode in ["density","d"]:
         data_folder = ".//data//Run_{}//".format(run_id)
     else:
-        data_folder = ".//data//gauss//"
+        data_folder = ".//data//gauss_{}//".format(run_id)
     
     
     with open(data_folder+"MAE_Losses.dat","rb") as f:
@@ -47,8 +47,8 @@ if __name__ == "__main__":
     
     with open(data_folder+"mae_test_losses.dat","rb") as f:
         test_MAEs = pickle.load(f)
-    
-    plot_folder = ".//plots//Run_{}//".format(run_id) if mode in ["d","density"] else ".//plots//gauss//"
+        
+    plot_folder = ".//plots//Run_{}//".format(run_id) if mode in ["d","density"] else ".//plots//gauss_{}//".format(run_id)
     
     if not os.path.exists(plot_folder):
         os.makedirs(plot_folder)

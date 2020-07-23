@@ -5,7 +5,8 @@ Created on Fri Jul 17 11:58:20 2020
 @author: Martin Sanner
 Gaussian Predictor: 
     Implementation of the GMM trained on the overall mean and variance of gaussians/gaussian mixtures. Should attain 100% accuracy.
-
+    
+    keep pis unnormalized as in gmm example
 """
 
 import numpy as np
@@ -53,24 +54,39 @@ logging.basicConfig(
 
 
 if __name__ == "__main__":
-    num_profile_train = 100
+    
+    run_file = "./runID_gauss.txt"
+    run_id = -1
+    if not os.path.isfile(run_file):
+        with open(run_file,"w") as f:
+            run_id = 1
+            f.write(str(run_id))
+            
+    else:
+        with open(run_file,"r") as f:
+            run_id = int(f.read())
+    
+    logging.info("="*20)
+    logging.info("Run {}".format(run_id))
+    logging.info("="*20)
+    
+    num_profile_train = 500
     kg = 1
     logging.info("Running on GPU: {}".format(len(tf.config.experimental.list_physical_devices('GPU')) > 0))
-    logging.info("Generating {} Profiles with {} distribution for training".format(num_profile_train, kg))
+    logging.info("Generating {} normals based on {} distribution for training".format(num_profile_train, kg))
     r = np.linspace(-10,10,1001)
     rs = np.asarray([r for i in range(num_profile_train)])
     gaussians, parameters,constituents_train = EinastoSim.generate_n_k_gaussian_parameters(rs,num_profile_train,kg)
     
     logging.info("Defining backend type: TF.float64")
     tf.keras.backend.set_floatx("float64")
-    logging.info("Running Logged renormalized Profiles.")
     
     #no need to log or normalize,already consists of gaussians
     X_full = parameters
     X_full = np.asarray(X_full).astype(np.float64)
     
     losses = []
-    EPOCHS = 500
+    EPOCHS = 250
     
     l = len(X_full[0])
     
@@ -81,32 +97,22 @@ if __name__ == "__main__":
     
     logging.info("Running {} dimensions on {} distributions".format(out_dim,k))
     
-    '''
-    # Define initial Model
-    input_transfer_layer = tf.keras.layers.Dense(1,activation = None,dtype = tf.float64)
-    layer = tf.keras.layers.Dense(50, activation='tanh', name='baselayer',dtype = tf.float64)(input)
-    mu = tf.keras.layers.Dense((k*out_dim), activation=None, name='mean_layer',dtype = tf.float64)(layer)
-    # variance (should be greater than 0 so we exponentiate it)
-    var_layer = tf.keras.layers.Dense((k*out_dim), activation=None, name='dense_var_layer')(layer)
-    var = tf.keras.layers.Lambda(lambda x: tf.math.exp(x), output_shape=(k,), name='variance_layer',dtype = tf.float64)(var_layer)
-    # mixing coefficient should sum to 1.0
-    pi = tf.keras.layers.Dense(k*out_dim, activation=None, name='pi_layer',dtype = tf.float64)(layer)
-    model = tf.keras.models.Model(input, [pi, mu, var])
-    '''
     
-    model2 = tf.keras.Sequential([tf.keras.Input(shape=(l,)), 
+    
+    model = tf.keras.Sequential([tf.keras.Input(shape=(l,)), 
                                   tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer',dtype = tf.float64),
+                                  tf.keras.layers.Dropout(0.4,dtype = tf.float64),
                                   tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer2',dtype = tf.float64),
                                   tf.keras.layers.Dense(3*k*out_dim,activation = None, name = "End_Layer")])
     
     
     # Define model and optimizer
-    lr = 1e-3
+    lr = 1e-4
     wd = 0#1e-6
     
     optimizer = tf.optimizers.Adam(lr)#tfa.optimizers.AdamW(lr,wd)
-    #model.summary()
-    model2.summary()
+
+    model.summary()
     
     N = np.asarray(X_full).shape[0]
     num_batches = 1
@@ -116,7 +122,7 @@ if __name__ == "__main__":
     .shuffle(N).batch(batchsize)
     
     # Start training
-    n_test_profiles = 100
+    n_test_profiles = 500
     test_gaussians, test_params,_ = EinastoSim.generate_n_k_gaussian_parameters(rs,n_test_profiles, kg)
     #test_gaussians = np.asarray([np.log(p) for p in test_gaussians])
     X_tt = test_params
@@ -124,8 +130,8 @@ if __name__ == "__main__":
     
     loss_target = 1e-3
     
-    best_model = model2
-    best_loss = np.inf
+    best_model = model
+    best_loss = tf.cast(np.inf,tf.float64)
     max_diff = 0.0  #differential loss
     start_parameters = {}
     epoch = start_parameters.get("epoch",1)
@@ -144,7 +150,7 @@ if __name__ == "__main__":
     diff = 0
     loss_break = False
     
-    max_loss_divergence = 2
+    max_loss_divergence = 0.2
     
     avg_train_loss_diff = 0
     avg_test_loss_diff = 0
@@ -171,49 +177,47 @@ if __name__ == "__main__":
         for train_x, train_y in dataset:
             with tf.GradientTape() as tape:
                 #pi_, mu_, var_ = model(train_x,training = True)
-                prediction_vector = model2(train_x,training = True)
+                prediction_vector = model(train_x,training = True)
                 pi_un,mu_,var_log = tf.split(prediction_vector,3,1)
-                pi_ = tf.sigmoid(pi_un)
+                pi_ = pi_un#tf.sigmoid(pi_un)
                 var_ = tf.exp(var_log)
                 sample, prob_array_training = generate_tensor_mixture_model(rs,pi_,mu_,var_)    
                 loss = tf.losses.mean_absolute_error(train_y,sample)
-            gradients = tape.gradient(loss, model2.trainable_variables)
-            optimizer.apply_gradients(zip(gradients, model2.trainable_variables))
-            '''
-            Amend counter if: not better than the best loss, delta_loss < minimum_delta, delta_loss < max_diff(best delta so far)
-            Reset counter if best loss overcome
-            '''
-            if tf.reduce_mean(loss) > best_loss:
-                counter += 1/num_batches
-            if len(losses) > 1:
-                diff = losses[-1] - losses[-2]
-                if diff < minimum_delta or diff < max_diff:
-                    counter += 1/num_batches
-                elif diff > max_diff + minimum_delta:
-                    max_diff = diff
-                    counter -= 1/num_batches #keep going if differential low enough, even if loss > min
-                    counter = max([0,counter]) #keep > 0
-                    
-            if tf.reduce_mean(loss) < best_loss:
-                best_loss = tf.reduce_mean(loss)
-                best_model = tf.keras.models.clone_model(model2)
-                #best_model.save_weights(".\\models\\weights\\Run_{}\\Run".format(run_id))
-                counter = 0
+            gradients = tape.gradient(loss, model.trainable_variables)
+            optimizer.apply_gradients(zip(gradients, model.trainable_variables))
         
         losses.append(tf.reduce_mean(loss))
         #calculate mse
-        pi_tt_base,mu_tt,var_tt_log = tf.split(best_model.predict(np.asarray(X_tt)),3,1)
-        pi_tt = tf.sigmoid(pi_tt_base)
+        pi_tt_base,mu_tt,var_tt_log = tf.split(model.predict(np.asarray(X_tt)),3,1)
+        pi_tt = pi_tt_base#tf.sigmoid(pi_tt_base)
         var_tt = tf.exp(var_tt_log)
         sample_preds, sample_probability_array = generate_tensor_mixture_model(rs,pi_tt,mu_tt,var_tt)
         mse_error_profiles = tf.reduce_mean(tf.losses.MSE(test_gaussians,sample_preds))
         MSEs.append(mse_error_profiles)
         
         #mae to compare to train loss
-        mae_error_profiles_test = tf.reduce_mean(tf.losses.mean_absolute_error(sample_preds,test_gaussians))
+        mae_error_profiles_test = tf.cast(tf.reduce_mean(tf.losses.mean_absolute_error(sample_preds,test_gaussians)),tf.float64)
         test_MAEs.append(mae_error_profiles_test)
         
-        
+        if mae_error_profiles_test < best_loss:
+                best_loss = tf.reduce_mean(mae_error_profiles_test)
+                best_model = tf.keras.models.clone_model(model)
+                #best_model.save_weights(".\\models\\weights\\Run_{}\\Run".format(run_id))
+                counter = 0
+        '''
+            Amend counter if: not better than the best loss, delta_loss < minimum_delta, delta_loss < max_diff(best delta so far)
+            Reset counter if best loss overcome
+            '''
+        if mae_error_profiles_test > best_loss:
+            counter += 1
+        if len(losses) > 1:
+            diff = losses[-1] - losses[-2]
+            if diff < minimum_delta or diff < max_diff:
+                counter += 1
+            elif diff > max_diff + minimum_delta:
+                max_diff = diff
+                counter -= 1 #keep going if differential low enough, even if loss > min
+                counter = max([0,counter]) #keep > 0
         counters.append(100*counter/counter_max) #counter percentage
         
         
@@ -247,7 +251,7 @@ if __name__ == "__main__":
     logging.info("Training completed after {}/{} epochs. Patience: {} %:: Best Loss: {}".format(epoch, EPOCHS, 100*counter/counter_max, best_loss))
     logging.info("Reason for exiting: loss_break: {}, diff < 0: {}, loss divergence: {}".format(loss_break,diff<0,loss_divergence))
     
-    data_folder = ".//data//gauss//"
+    data_folder = ".//data//gauss_{}//".format(run_id)
     if not os.path.exists(data_folder):
         os.makedirs(data_folder)
     logging.info("Dumping data to {}".format(data_folder))
@@ -268,9 +272,11 @@ if __name__ == "__main__":
     #test_gauss = np.asarray([np.log(p) for p in test_gauss])
     X_test = test_params
     pi_test_base, mu_test,var_test_log = tf.split(best_model.predict(np.asarray(X_test)),3,1)
-    pi_test = tf.sigmoid(pi_test_base)
+    pi_test = pi_test_base#tf.sigmoid(pi_test_base)
     var_test = tf.exp(var_test_log)
     sample_preds, sample_probability_array = generate_tensor_mixture_model(rs, pi_test,mu_test, var_test)
     test_data = {"Profiles":test_gauss, "STDParams":{"Pi":pi_test,"Mu":mu_test,"Var":var_test},"Xtest":X_test, "r":rs}
     with open(data_folder+"test_data.dat","wb") as f:
         pickle.dump(test_data,f)
+    with open(run_file,"w") as f:
+        f.write(str(run_id +1))
