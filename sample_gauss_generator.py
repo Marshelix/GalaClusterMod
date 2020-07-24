@@ -13,6 +13,7 @@ import tensorflow as tf
 import tensorflow_probability as tfp#normal dist
 from copy import deepcopy
 import sys
+import matplotlib.pyplot as plt
 import  logging
 from datetime import datetime
 import numpy as np

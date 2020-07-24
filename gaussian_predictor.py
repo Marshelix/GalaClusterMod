@@ -31,7 +31,7 @@ from normal_dist_calculator import generate_tensor_mixture_model
 from Reparameterizer import reparameterizer, normalize_profiles,renormalize_profiles
 
 import pickle
-
+from sklearn.model_selection import train_test_split
 import argparse
 np.random.seed(42)
 tf.random.set_seed(42)
@@ -54,6 +54,24 @@ logging.basicConfig(
 
 
 if __name__ == "__main__":
+    '''
+    Restricted float from https://stackoverflow.com/questions/12116685/how-can-i-require-my-python-scripts-argument-to-be-a-float-between-0-0-1-0-usin
+    '''
+    def restricted_float(x):
+        try:
+            x = float(x)
+        except ValueError:
+            raise argparse.ArgumentTypeError("%r not a floating-point literal" % (x,))
+        return x
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num_profile",type = int,default = 500, help = "Number of profiles")
+    parser.add_argument("--train_ratio",type = restricted_float, default = 0.5, help = "Ratio of training to test samples")
+    parser.add_argument("--lr",type = restricted_float,default = 1e-3,help = "Learning rate")
+    parser.add_argument("--k",type = int, default = 4, help = "k")
+    parser.add_argument("--kg",type = int, default = 1, help = "k-generator")
+    parser.add_argument("--epochs",type = int, default = 500, help = "Epochs")
+    args = parser.parse_args()
     
     run_file = "./runID_gauss.txt"
     run_id = -1
@@ -70,30 +88,36 @@ if __name__ == "__main__":
     logging.info("Run {}".format(run_id))
     logging.info("="*20)
     
-    num_profile_train = 500
-    kg = 1
+    #total_profiles, total_arguments,_ = 
+    
+    #num_profile_train = 500
+    num_profiles = args.num_profile
+    kg = args.kg
     logging.info("Running on GPU: {}".format(len(tf.config.experimental.list_physical_devices('GPU')) > 0))
-    logging.info("Generating {} normals based on {} distribution for training".format(num_profile_train, kg))
+    logging.info("Generating {} normals based on {} distribution for training".format(num_profiles, kg))
     r = np.linspace(-10,10,1001)
-    rs = np.asarray([r for i in range(num_profile_train)])
-    gaussians, parameters,constituents_train = EinastoSim.generate_n_k_gaussian_parameters(rs,num_profile_train,kg)
+    rs = np.asarray([r for i in range(num_profiles)])
+    
+    
+    gaussians_full, parameters,constituents_train = EinastoSim.generate_n_k_gaussian_parameters(rs,num_profiles,kg)
+    X_full,X_tt,gaussians,test_gaussians = train_test_split(gaussians_full,parameters,args.train_ratio)
     
     logging.info("Defining backend type: TF.float64")
     tf.keras.backend.set_floatx("float64")
     
     #no need to log or normalize,already consists of gaussians
-    X_full = parameters
+    #X_full = parameters
     X_full = np.asarray(X_full).astype(np.float64)
     
     losses = []
-    EPOCHS = 250
+    EPOCHS = args.epochs
     
     l = len(X_full[0])
     
     #output dimension
     out_dim = 1
     # Number of gaussians to represent the multimodal distribution
-    k = 4
+    k = args.k
     
     logging.info("Running {} dimensions on {} distributions".format(out_dim,k))
     
@@ -101,7 +125,7 @@ if __name__ == "__main__":
     
     model = tf.keras.Sequential([tf.keras.Input(shape=(l,)), 
                                   tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer',dtype = tf.float64),
-                                  tf.keras.layers.Dropout(0.4,dtype = tf.float64),
+                                  tf.keras.layers.Dropout(0.1,dtype = tf.float64),
                                   tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer2',dtype = tf.float64),
                                   tf.keras.layers.Dense(3*k*out_dim,activation = None, name = "End_Layer")])
     
@@ -122,10 +146,11 @@ if __name__ == "__main__":
     .shuffle(N).batch(batchsize)
     
     # Start training
-    n_test_profiles = 500
-    test_gaussians, test_params,_ = EinastoSim.generate_n_k_gaussian_parameters(rs,n_test_profiles, kg)
+    n_test_profiles = int(num_profiles*args.train_ratio)
+    #test_gaussians, test_params,_ = EinastoSim.generate_n_k_gaussian_parameters(rs,n_test_profiles, kg)
     #test_gaussians = np.asarray([np.log(p) for p in test_gaussians])
-    X_tt = test_params
+    #X_tt = test_params
+    
     counter_max = 5000
     
     loss_target = 1e-3
@@ -164,7 +189,7 @@ if __name__ == "__main__":
     logging.info("Minimum delta loss to not lose patience: {}".format(minimum_delta))
     logging.info("Target loss: < {}".format(loss_target))
     logging.info("# Samples: {}".format(n_test_profiles))
-    logging.info("# Training Profiles: {}".format(num_profile_train))
+    logging.info("# Training Profiles: {}".format(num_profiles))
     logging.info("Printing every {} epochs".format(print_every))
     logging.info("Maximum loss divergence: {}".format(max_loss_divergence))
     logging.info("Maximum length values taken into account: {}".format(rolling_mean_length))
