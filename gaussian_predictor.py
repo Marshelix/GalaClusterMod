@@ -27,7 +27,7 @@ from datetime import datetime
 
 import pandas as pd
 
-from normal_dist_calculator import generate_tensor_mixture_model
+from normal_dist_calculator import generate_tensor_mixture_model,generate_vector_gauss_mixture,generate_vector_random_gauss_mixture
 from Reparameterizer import reparameterizer, normalize_profiles,renormalize_profiles
 
 import pickle
@@ -63,14 +63,22 @@ if __name__ == "__main__":
         except ValueError:
             raise argparse.ArgumentTypeError("%r not a floating-point literal" % (x,))
         return x
-
+    '''
+    Argument defaults
+    '''
+    def_num_profiles = 500
+    def_train_ratio = 0.5
+    def_lr  = 1e-4
+    def_k = 32
+    def_kg = 4
+    def_epochs = 8000
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num_profile",type = int,default = 500, help = "Number of profiles")
-    parser.add_argument("--train_ratio",type = restricted_float, default = 0.5, help = "Ratio of training to test samples")
-    parser.add_argument("--lr",type = restricted_float,default = 1e-3,help = "Learning rate")
-    parser.add_argument("--k",type = int, default = 4, help = "k")
-    parser.add_argument("--kg",type = int, default = 1, help = "k-generator")
-    parser.add_argument("--epochs",type = int, default = 500, help = "Epochs")
+    parser.add_argument("--num_profile",type = int,default = def_num_profiles, help = "Number of profiles - default {}".format(def_num_profiles))
+    parser.add_argument("--train_ratio",type = restricted_float, default = def_train_ratio, help = "Ratio of training to test samples - default {}".format(def_train_ratio))
+    parser.add_argument("--lr",type = restricted_float,default = def_lr,help = "Learning rate - default {}".format(def_lr))
+    parser.add_argument("--k",type = int, default = def_k, help = "k - default {}".format(def_k))
+    parser.add_argument("--kg",type = int, default = def_kg, help = "k-generator - default {}".format(def_kg))
+    parser.add_argument("--epochs",type = int, default = def_epochs, help = "Epochs - default {}".format(def_epochs))
     args = parser.parse_args()
     
     run_file = "./runID_gauss.txt"
@@ -99,8 +107,8 @@ if __name__ == "__main__":
     rs = np.asarray([r for i in range(num_profiles)])
     
     
-    gaussians_full, parameters,constituents_train = EinastoSim.generate_n_k_gaussian_parameters(rs,num_profiles,kg)
-    X_full,X_tt,gaussians,test_gaussians = train_test_split(gaussians_full,parameters,args.train_ratio)
+    gaussians_full, parameters,original_mixtures = generate_vector_random_gauss_mixture(rs,kg)#EinastoSim.generate_n_k_gaussian_parameters(rs,num_profiles,kg)
+    gaussians,test_gaussians,X_full,X_tt = train_test_split(gaussians_full,parameters,test_size = float(args.train_ratio))
     
     logging.info("Defining backend type: TF.float64")
     tf.keras.backend.set_floatx("float64")
@@ -122,16 +130,15 @@ if __name__ == "__main__":
     logging.info("Running {} dimensions on {} distributions".format(out_dim,k))
     
     
-    
+    #tf.keras.layers.Dropout(0.1,dtype = tf.float64),
     model = tf.keras.Sequential([tf.keras.Input(shape=(l,)), 
-                                  tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer',dtype = tf.float64),
-                                  tf.keras.layers.Dropout(0.1,dtype = tf.float64),
+                                  tf.keras.layers.Dense(45,activation = 'tanh',name = 'Intermediate_Layer',dtype = tf.float64),
                                   tf.keras.layers.Dense(50,activation = 'tanh',name = 'Intermediate_Layer2',dtype = tf.float64),
                                   tf.keras.layers.Dense(3*k*out_dim,activation = None, name = "End_Layer")])
     
     
     # Define model and optimizer
-    lr = 1e-4
+    lr = args.lr
     wd = 0#1e-6
     
     optimizer = tf.optimizers.Adam(lr)#tfa.optimizers.AdamW(lr,wd)
@@ -175,7 +182,7 @@ if __name__ == "__main__":
     diff = 0
     loss_break = False
     
-    max_loss_divergence = 0.2
+    max_loss_divergence = 2e-3
     
     avg_train_loss_diff = 0
     avg_test_loss_diff = 0
@@ -198,15 +205,18 @@ if __name__ == "__main__":
     logging.info("Starting training at: {}".format(train_start))
     time_estimate_per_epoch = np.inf
     loss_divergence = False
+    with tf.GradientTape() as tape:
+        tape.reset()
+        
     while training_bool:
         for train_x, train_y in dataset:
             with tf.GradientTape() as tape:
                 #pi_, mu_, var_ = model(train_x,training = True)
                 prediction_vector = model(train_x,training = True)
                 pi_un,mu_,var_log = tf.split(prediction_vector,3,1)
-                pi_ = pi_un#tf.sigmoid(pi_un)
+                pi_ = tf.nn.softmax(pi_un)
                 var_ = tf.exp(var_log)
-                sample, prob_array_training = generate_tensor_mixture_model(rs,pi_,mu_,var_)    
+                sample, mixtures = generate_vector_gauss_mixture(rs,pi_,mu_,var_)#generate_tensor_mixture_model(rs,pi_,mu_,var_)    
                 loss = tf.losses.mean_absolute_error(train_y,sample)
             gradients = tape.gradient(loss, model.trainable_variables)
             optimizer.apply_gradients(zip(gradients, model.trainable_variables))
@@ -214,9 +224,9 @@ if __name__ == "__main__":
         losses.append(tf.reduce_mean(loss))
         #calculate mse
         pi_tt_base,mu_tt,var_tt_log = tf.split(model.predict(np.asarray(X_tt)),3,1)
-        pi_tt = pi_tt_base#tf.sigmoid(pi_tt_base)
+        pi_tt = tf.nn.softmax(pi_tt_base)
         var_tt = tf.exp(var_tt_log)
-        sample_preds, sample_probability_array = generate_tensor_mixture_model(rs,pi_tt,mu_tt,var_tt)
+        sample_preds, sample_mixtures = generate_vector_gauss_mixture(rs,pi_tt,mu_tt,var_tt)#generate_tensor_mixture_model(rs,pi_tt,mu_tt,var_tt)
         mse_error_profiles = tf.reduce_mean(tf.losses.MSE(test_gaussians,sample_preds))
         MSEs.append(mse_error_profiles)
         
@@ -260,7 +270,7 @@ if __name__ == "__main__":
         loss_break = (best_loss.numpy() < loss_target)
         loss_break = loss_break or (diff < 0) 
         
-        loss_divergence = abs(tf.reduce_mean(loss)-tf.cast(mae_error_profiles_test,dtype = tf.float64)) > max_loss_divergence if epoch > 1 else False
+        loss_divergence = abs(tf.reduce_mean(loss)-tf.cast(mse_error_profiles,dtype = tf.float64)) > max_loss_divergence if epoch > 1 else False
         '''
         Continue training if epochs left or if current best loss is worse than the target
         Stop training if training/test losses diverge or if patience lost
@@ -293,13 +303,14 @@ if __name__ == "__main__":
     
     
     n_test_profiles = 10
-    test_gauss,test_params,generators = EinastoSim.generate_n_k_gaussian_parameters(rs,n_test_profiles,kg)
+    rs = [r for i in range(n_test_profiles)]
+    test_gauss,test_params,generators = generate_vector_random_gauss_mixture(rs,kg)#EinastoSim.generate_n_k_gaussian_parameters(rs,n_test_profiles,kg)
     #test_gauss = np.asarray([np.log(p) for p in test_gauss])
     X_test = test_params
     pi_test_base, mu_test,var_test_log = tf.split(best_model.predict(np.asarray(X_test)),3,1)
-    pi_test = pi_test_base#tf.sigmoid(pi_test_base)
+    pi_test = tf.nn.softmax(pi_test_base)#tf.sigmoid(pi_test_base)
     var_test = tf.exp(var_test_log)
-    sample_preds, sample_probability_array = generate_tensor_mixture_model(rs, pi_test,mu_test, var_test)
+    sample_preds, sample_mixtures = generate_vector_gauss_mixture(rs,pi_test,mu_test,var_test)#generate_tensor_mixture_model(rs, pi_test,mu_test, var_test)
     test_data = {"Profiles":test_gauss, "STDParams":{"Pi":pi_test,"Mu":mu_test,"Var":var_test},"Xtest":X_test, "r":rs}
     with open(data_folder+"test_data.dat","wb") as f:
         pickle.dump(test_data,f)

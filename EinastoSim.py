@@ -71,7 +71,8 @@ def generate_n_k_gaussians(rs,n = 1,kg = 1):
         mus = [np.random.uniform(-1.0,1.0) for k in range(kg)]
         var = [np.random.uniform(0.0,1.0) for k in range(kg)]
         pis = [np.random.rand() for k in range(kg)]
-        pis = [cp/np.sum(pis) for cp in pis]
+        spi = np.sum(pis)
+        pis = [cp/spi for cp in pis]
         current_sub_gaussians = []
         for kc in range(kg):
             current_sub_gaussians.append(pis[kc]*generate_gaussian(r,mus[kc],var[kc]))
