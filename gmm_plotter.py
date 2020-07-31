@@ -91,14 +91,6 @@ if __name__ == "__main__":
     plt.savefig(plot_folder+"MSE_Losses.png")
     plt.close("all")
     
-    #plt.figure()
-    #plt.plot(overlap_ratios)
-    #plt.title("Profile Overlap Ratios true/generated")
-    #plt.xlabel("Epoch")
-    #plt.ylabel("Overlap")
-    #plt.savefig(plot_folder+"Overlap_Ratios.png")
-    #plt.close("all")
-    
     with open(data_folder + "test_data.dat","rb") as f:
         test_data = pickle.load(f)
     t_s_renorm = test_data["Profiles"]

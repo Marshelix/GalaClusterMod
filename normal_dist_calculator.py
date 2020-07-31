@@ -27,7 +27,61 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout)
     ]
 )
-    
+
+onedivsqrttwoPi = 1/np.sqrt(2*np.pi)
+
+class normalDistCalc:
+    def __init__(self,mu = 0.0,var = 1.0):
+        '''
+
+        Parameters
+        ----------
+        mu : float
+            Mean value of distribution
+        var : Variance > 0
+            applies absolute value function if necessary. If 0, reset to 1
+
+        Returns
+        -------
+        None.
+
+        '''
+        self.mu = mu
+        self.var = tf.abs(var) if var < 0 else var
+        if var == 0:
+            self.var = 1
+         
+    def generate_distribution(self,x):
+        premult = tf.cast(onedivsqrttwoPi*(1/tf.sqrt(self.var)),dtype = tf.float64)
+        diff = tf.math.subtract(x,self.mu)
+        diffsqr = diff**2
+        expon = -diffsqr/(2*self.var)
+        return premult*tf.exp(expon)
+
+class normalMixtureCalculator:
+    def __init__(self):
+        self.kg = 1
+        self.pis = np.asarray([1/self.kg for i in range(self.kg)]) #uniform
+        self.mus = np.asarray([0 for i in range(self.kg)])
+        self.var = np.asarray([1 for i in range(self.kg)])
+    def calculate_mixture_distributions(self,xs,pis,mus,var):
+        n,k = np.asarray(pis).shape
+        n2,k2 = np.asarray(mus).shape
+        n3,k3 = np.asarray(var).shape
+        assert n == n2 and n2 == n3 and k == k2 and k2 == k3, "Mixture parameters dont have matching shapes, {},{},{}".format(pis.shape,mus.shape,var.shape)
+        self.kg = k
+        mixture_sources = []
+        mixtures = []
+        for mix_index in range(n):
+            x = xs[n % len(xs)]
+            probability_array = []
+            for kd in range(self.kg):
+                probability_array.append(pis[mix_index][kd]*normalDistCalc(mus[mix_index][kd], var[mix_index][kd]).generate_distribution(x))
+            mixture = tf.add_n(probability_array)
+            mixtures.append(mixture)
+            mixture_sources.append(np.asarray(probability_array))
+        return np.asarray(mixtures), mixture_sources
+        
 def generate_vector_random_gauss_mixture(r_values, kg):
     n = len(r_values)
     mixtures = []
@@ -48,9 +102,9 @@ def generate_vector_random_gauss_mixture(r_values, kg):
     return np.asarray(mixture_pdfs),np.asarray(parameters),mixtures
 
 def generate_vector_gauss_mixture(r_values, pi_values, mu_values, var_values):
-    n,k = pi_values.shape
-    n2,k2 = mu_values.shape
-    n3,k3 = var_values.shape
+    n,k = np.asarray(pi_values).shape
+    n2,k2 = np.asarray(mu_values).shape
+    n3,k3 = np.asarray(var_values).shape
     assert n == n2 and n2 == n3 and k == k2 and k2 == k3, "Mixture parameters dont have matching shapes, {},{},{}".format(pi_values.shape,mu_values.shape,var_values.shape)
     mixtures = []
     mixture_pdfs = []
@@ -81,24 +135,39 @@ def generate_tensor_mixture_model(r_values, pi_values, mu_values, var_values):
     return tf.stack(mixtures),probabilities
 
 if __name__ == "__main__":
-    '''
-    usage of the MixtureSameFamily class seems to have some issues. Trace in here
-    WARNING:tensorflow:From F:\Addons\Anaconda\envs\project\lib\site-packages\tensorflow_probability\python\distributions\categorical.py:225: Categorical._logits_deprecated_behavior (from tensorflow_probability.python.distributions.categorical) is deprecated and will be removed after 2019-10-01.
-    Instructions for updating:
-    
-    The `logits` property will return `None` when the distribution is parameterized with `logits=None`. Use `logits_parameter()` instead.
-
-    WARNING:tensorflow:From F:\Addons\Anaconda\envs\project\lib\site-packages\tensorflow\python\ops\math_ops.py:2403: add_dispatch_support.<locals>.wrapper (from tensorflow.python.ops.array_ops) is deprecated and will be removed in a future version.
-    Instructions for updating:
-    Use tf.where in 2.0, which has the same broadcast rule as np.where
-
-    '''
-    num_profiles = 10#args.num_profile
-    kg = 4
+    #num_profiles = 10#args.num_profile
+    #kg = 4
+    plt.close("all")
     r = np.linspace(-10,10,1001)
-    rs = [r for i in range(num_profiles)]
-    #generated_gaussians, parameters, gaussMixtures = generate_vector_random_gauss_mixture(rs,kg)
-    pis = [np.random.rand() for k in range(kg)]
-    spi = np.sum(pis)
-    pis = [pi/spi for pi in pis]
-    cat = tfp.distributions.Categorical(probs = pis)
+    mu = 0
+    var = 0.5
+    calcul = normalDistCalc(mu,var)
+    sample_dist = calcul.generate_distribution(r)
+    other_dist = tfp.distributions.Normal(loc = mu, scale = tf.sqrt(var))
+    diff = tf.cast(sample_dist,tf.float64) - tf.cast(other_dist.prob(r),tf.float64)
+    plt.figure()
+    plt.plot(r,sample_dist,label = "Calculator distribution")
+    plt.plot(r,other_dist.prob(r),label = "TFP dist")
+    plt.legend()
+    plt.figure()
+    plt.plot(r,diff)
+    num_gen = 5
+    kg = 4
+    rs = [r for i in range(num_gen)]
+    pis = [tf.cast(tf.nn.softmax([np.random.rand() for j in range(kg)]),dtype = tf.float64) for i in range(num_gen)]
+    mus = [[np.random.choice(r,replace = False) for j in range(kg)] for i in range(num_gen)]
+    var = [[np.random.rand() for j in range(kg)] for i in range(num_gen)]
+    mix_gen = normalMixtureCalculator()
+    mixtures,mixture_sources = mix_gen.calculate_mixture_distributions(rs,pis,mus,var)
+    tf_mixtures_pdfs,tf_mixture_sources = generate_vector_gauss_mixture(rs,pis,mus,tf.cast(tf.sqrt(var),tf.float64))
+    for i in range(num_gen):
+        plt.figure()
+        plt.plot(r,mixtures[i],label = "Self generated distribution")
+        plt.plot(r,tf_mixtures_pdfs[i],label = "TF generated dist")
+        plt.legend()
+    #rs = [r for i in range(num_profiles)]
+    ##generated_gaussians, parameters, gaussMixtures = generate_vector_random_gauss_mixture(rs,kg)
+    #pis = [np.random.rand() for k in range(kg)]
+    #spi = np.sum(pis)
+    #pis = [pi/spi for pi in pis]
+    #cat = tfp.distributions.Categorical(probs = pis)
