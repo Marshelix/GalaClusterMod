@@ -33,9 +33,9 @@ class reparameterizer:
         assert len(new_profiles) == self.num_param_sets,"This reparameterizer expects {} profiles.".format(self.num_param_sets)
         return np.asarray([new_profiles[i]*(self.minmax[i][1]-self.minmax[i][0]+1e-9)+self.minmax[i][0] for i in range(self.num_param_sets)])
 
+#estimate "normalization" parameter as reduction of most plots
+normalization_param_einasto = 66
 
-normalization_param_einasto = -11
-normalization_param_nfw = 1.5
 
 def normalize_profiles(logged_profiles,normalization_param = normalization_param_einasto):
     '''
@@ -49,12 +49,18 @@ def renormalize_profiles(renorm_log_profiles,normalization_param = normalization
 
 if __name__ == "__main__":
     plt.close("all")
-    profiles, parameters, rs = EinastoSim.generate_n_random_einasto_profile_maggie(1)
+    profiles, parameters, rs = EinastoSim.generate_n_random_einasto_profile_maggie(15)
     r = rs[0]
-    profile = profiles[0]
     log_prof = [np.log(p) for p in profiles]
-    repa = reparameterizer(log_prof)
-    repa_profs = repa.calculate_parameterization()
-    
+    repa_profs = normalize_profiles(log_prof)
+    for i in range(len(rs)):
+        r = rs[i]
+        log_profile = repa_profs[i]
+        parameter = parameters[i]
+        plt.figure()
+        plt.title(EinastoSim.print_params_maggie(parameter).replace("\t",""))
+        plt.xlabel("R [Mpc]")
+        plt.ylabel("log({}(r))".format(u"\u03C1"))
+        plt.plot(r,log_profile)
     
     

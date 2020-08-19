@@ -15,10 +15,13 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 
-Msol = 1#1.9984*(10)**(30) #kg
+Msol = 1.9984*(10)**(30) #kg
+m2km = 1/1000
 Lyr2MPc = 3.066013938E-7 #
 km2Lyr = 9.461e+12
 km2Mpc = km2Lyr*Lyr2MPc
+m2Mpc = m2km*km2Mpc
+kg2Msol = 1/Msol
 h = 0.7 #cosmological parameter
 rmax_glob = 3#52850*Lyr2MPc
 Mpc = 3.087*10**(16)
@@ -33,8 +36,8 @@ Om_l = 0.7
 
 error_epsi  = 1e-10
 G = 6.67430*10**(-11)   #m^3 kg^-1 s^-2
-Gnew = G*km2Mpc**3/Msol
-
+Gnew = G*(m2Mpc)**3/kg2Msol
+G_wrong = G*(km2Mpc)**3/Msol
 
 lowest_alpha_val = 1e-1
     
@@ -74,7 +77,7 @@ def einasto_maggie(r,Mdelta,cdelta,delta,alpha,zl,h = h,Om = Om_m, Ol = Om_l):
     rho_cd  = first_mult*second_mult*third_mult*fourth_mult
     
     rhomult = rho_cd*rhocrit
-    return np.abs(rhomult*np.exp(-(r/rs*(2*n)**n)**alpha)) + error_epsi
+    return rhomult*np.exp(-(r/rs*(2*n)**n)**alpha)#np.abs(rhomult*np.exp(-(r/rs*(2*n)**n)**alpha)) + error_epsi
 
 def generate_random_einasto_profile_maggie(rmax,r_granularity = r_gran_max):
     profile = []
@@ -94,10 +97,6 @@ def generate_n_random_einasto_profile_maggie(num_profiles,rmax = rmax_glob,r_gra
     radii = []
     for i in range(num_profiles):
         profile,params,r = generate_random_einasto_profile_maggie(rmax,r_granularity)
-        #infinities = np.sum([int(np.isinf(p)) for p in profile])
-        #nans = np.sum([int(np.isnan(p)) for p in profile])
-        #zeros = np.sum([p == 0 for p in profile]) 
-        #print("Profile {} generated, length {}, Infinities: {}, NaNs: {},zeros: {}".format(i,profile.size,infinities,nans,zeros))
         profiles.append(profile)
         profile_params.append(params)
         radii.append(r)
@@ -105,12 +104,26 @@ def generate_n_random_einasto_profile_maggie(num_profiles,rmax = rmax_glob,r_gra
 
 def print_params_maggie(parameters):
     assert len(parameters) == 4, "Wrong amount of parameters inserted"
-    M = parameters[0]*(10**14*Msol) 
+    M = parameters[0]*(10**14)#in Msol 
     cdelta = parameters[1]
     delta = 200#parameters[2]
     alpha = parameters[2]
     zl = parameters[3]*0.9
     profile_string = "Parameters: \n \t M = {} Ms \n\t cdelta =  {} \n \t delta = {} \n \t alpha = {} \n \t z = {}".format(M,cdelta,delta,alpha,zl)
-    print(profile_string)
+    #print(profile_string)
     return profile_string    
 
+if __name__ == "__main__":
+    rmax = rmax_glob
+    profile, parameters, rs = generate_random_einasto_profile_maggie(rmax)
+    plt.figure()
+    plt.title(print_params_maggie(parameters).replace("\t",""))
+    plt.xlabel("R [Mpc]")
+    plt.ylabel("{}(r)".format(u"\u03C1"))
+    plt.plot(rs,profile)
+    plt.figure()
+    plt.title(print_params_maggie(parameters).replace("\t",""))
+    plt.xlabel("R [Mpc]")
+    plt.ylabel("log({})(r) []".format(u"\u03C1"))
+    plt.plot(rs,np.log(profile))
+    

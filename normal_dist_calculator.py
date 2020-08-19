@@ -81,7 +81,26 @@ class normalMixtureCalculator:
             mixtures.append(mixture)
             mixture_sources.append(np.asarray(probability_array))
         return np.asarray(mixtures), mixture_sources
-        
+    def calculate_mixture_pre_distribution(self,xs,pres,mus,var):
+        n,k = np.asarray(pres).shape
+        n2,k2 = np.asarray(mus).shape
+        n3,k3 = np.asarray(var).shape
+        assert n == n2 and n2 == n3 and k == k2 and k2 == k3, "Mixture parameters dont have matching shapes, {},{},{}".format(pis.shape,mus.shape,var.shape)
+        self.kg = k
+        mixture_sources = []
+        mixtures = []
+        for mix_index in range(n):
+            x = xs[n % len(xs)]
+            probability_array = []
+            for kd in range(self.kg):
+                diff = x-mus[mix_index][kd]
+                diffsqr = diff**2
+                expon = -diffsqr/(2*var[mix_index][kd])
+                probability_array.append(pres[mix_index][kd]*tf.exp(expon))
+            mixture = tf.add_n(probability_array)
+            mixtures.append(mixture)
+            mixture_sources.append(np.asarray(probability_array))
+        return np.asarray(mixtures), mixture_sources
 def generate_vector_random_gauss_mixture(r_values, kg):
     n = len(r_values)
     mixtures = []
@@ -109,7 +128,7 @@ def generate_vector_gauss_mixture(r_values, pi_values, mu_values, var_values):
     mixtures = []
     mixture_pdfs = []
     for mix_index in range(n):
-        gm = tfp.distributions.MixtureSameFamily(mixture_distribution = tfp.distributions.Categorical(probs = pi_values[mix_index]),components_distribution = tfp.distributions.Normal(loc = mu_values[mix_index],scale = var_values[mix_index])) 
+        gm = tfp.distributions.MixtureSameFamily(mixture_distribution = tfp.distributions.Categorical(probs = pi_values[mix_index]),components_distribution = tfp.distributions.Normal(loc = mu_values[mix_index],scale = var_values[mix_index]),allow_nan_stats = False) 
         mixtures.append(gm)
         mixture_pdfs.append(gm.prob(r_values[mix_index]))
     return tf.stack(mixture_pdfs),mixtures
@@ -126,7 +145,7 @@ def generate_tensor_mixture_model(r_values, pi_values, mu_values, var_values):
     for mix_index in range(n):
         probability_array = []
         for kd in range(k):
-            probability_array.append(pi_values[mix_index,kd]*tfp.distributions.normal.Normal(mu_values[mix_index,kd],var_values[mix_index,kd]).prob(r_values[mix_index]))
+            probability_array.append(pi_values[mix_index,kd]*tfp.distributions.normal.Normal(mu_values[mix_index,kd],tf.cast(tf.sqrt(var_values[mix_index,kd]),tf.float64)).prob(r_values[mix_index]))
         mixture = tf.add_n(probability_array)
         mixtures.append(mixture)
         probabilities.append(probability_array)
@@ -165,9 +184,4 @@ if __name__ == "__main__":
         plt.plot(r,mixtures[i],label = "Self generated distribution")
         plt.plot(r,tf_mixtures_pdfs[i],label = "TF generated dist")
         plt.legend()
-    #rs = [r for i in range(num_profiles)]
-    ##generated_gaussians, parameters, gaussMixtures = generate_vector_random_gauss_mixture(rs,kg)
-    #pis = [np.random.rand() for k in range(kg)]
-    #spi = np.sum(pis)
-    #pis = [pi/spi for pi in pis]
-    #cat = tfp.distributions.Categorical(probs = pis)
+    

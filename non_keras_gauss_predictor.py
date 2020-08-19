@@ -53,12 +53,12 @@ if __name__ == "__main__":
     '''
     Argument defaults
     '''
-    def_num_profiles = 50
+    def_num_profiles = 2000
     def_train_ratio = 0.5
-    def_lr  = 1e-4
-    def_k = 8
-    def_kg = 4
-    def_epochs = 2000
+    def_lr  = 1e-3
+    def_k = 4
+    def_kg = 1
+    def_epochs = 100
     parser = argparse.ArgumentParser()
     parser.add_argument("--num_profile",type = int,default = def_num_profiles, help = "Number of profiles - default {}".format(def_num_profiles))
     parser.add_argument("--train_ratio",type = restricted_float, default = def_train_ratio, help = "Ratio of training to test samples - default {}".format(def_train_ratio))
@@ -80,7 +80,7 @@ if __name__ == "__main__":
             run_id = int(f.read())
     
     logging.info("="*20)
-    logging.info("Run {}".format(run_id))
+    logging.info("Gauss Run {}".format(run_id))
     logging.info("="*20)
     
     num_profiles = args.num_profile
@@ -108,18 +108,20 @@ if __name__ == "__main__":
     Define model manually
     '''
     lr = args.lr
-    n_hid_1 = 30
-    n_hid_2 = 30
+    n_hid_1 = 20
+    n_hid_2 = 20
     
     initial_nodes,best_nodes = trad.create_initial_nodes(l,n_hid_1,n_hid_2,k,out_dim)
       
-    optimizer = tf.optimizers.Adam(lr)
+    optimizer = tf.optimizers.Adam(lr)#tf.optimizers.Adadelta(lr)#tfa.optimizers.AdamW(lr,wd)
+    logging.info("Training with optimizer: {}".format(optimizer.__class__.__name__))
     '''
     Create Dataset
     '''
     N = np.asarray(X_full).shape[0]
-    num_batches = 1
+    num_batches = 10
     batchsize = N//num_batches
+    logging.info("Employing {} batches with size {}".format(num_batches,batchsize))
     dataset = tf.data.Dataset \
     .from_tensor_slices((X_full, gaussians)) \
     .shuffle(N).batch(batchsize)
@@ -128,10 +130,28 @@ if __name__ == "__main__":
     Initialize training
     '''
     
-    start_parameters = {}
-    min_epoch_train_pre_div = 3
+    start_parameters = {"minDelta":1e-5}
+    min_epoch_train_pre_div = 100
     normalize = True
-    best_nodes,losses,MSEs,counters,test_MAEs = trad.train_model(initial_nodes,optimizer,dataset,rs,EPOCHS,X_tt,test_gaussians,rs,min_epoch_train_pre_div,start_parameters,5,lr,normalize)
+    max_loss_divergence = 10
+    patience_disabled = False
+    wd = 0
+    best_nodes,losses,MSEs,counters,test_MAEs = trad.train_model(initial_nodes,
+                                                                 optimizer,
+                                                                 dataset,
+                                                                 rs,
+                                                                 EPOCHS,
+                                                                 X_tt,
+                                                                 test_gaussians,
+                                                                 rs,
+                                                                 min_epoch_train_pre_div,
+                                                                 start_parameters,
+                                                                 5,
+                                                                 lr,
+                                                                 normalize,
+                                                                 max_loss_divergence,
+                                                                 patience_disabled,
+                                                                 wd)
     data_folder = ".//data//gauss_{}//".format(run_id)
     if not os.path.exists(data_folder):
         os.makedirs(data_folder)

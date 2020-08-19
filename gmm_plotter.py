@@ -17,7 +17,7 @@ import EinastoSim
 
 if __name__ == "__main__":
     
-    mode = "n"
+    mode = ""
     while mode not in ["density","normal","d","n"]:
         mode = input("Input one of {}:".format(["density","normal","d","n"]))
     
@@ -101,7 +101,7 @@ if __name__ == "__main__":
     n_test_profiles,k = pi_test.shape
     t_associated_r = test_data["r"]
     
-    sample_preds, sample_mixtures = generate_vector_gauss_mixture(t_associated_r,pi_test,mu_test,var_test)#generate_tensor_mixture_model(t_associated_r, pi_test,mu_test, var_test)
+    sample_preds, sample_mixtures = generate_tensor_mixture_model(t_associated_r,pi_test,mu_test,var_test)#generate_tensor_mixture_model(t_associated_r, pi_test,mu_test, var_test)
     
     for i in range(n_test_profiles):
         profile_sample = sample_preds[i,:]
@@ -110,16 +110,18 @@ if __name__ == "__main__":
         plt.plot(t_associated_r[i],test_prof,label = "True profile")
         
         mng = plt.get_current_fig_manager()
-        gm = sample_mixtures[i]
         
-        plt.plot(t_associated_r[i],profile_sample, label = "Sample")
+        plt.plot(t_associated_r[i],profile_sample, label = "Sample - RMSE {}".format(tf.losses.MSE(test_prof,profile_sample).numpy()))
         for kd in range(k):
-            plt.plot(t_associated_r[i],gm.components_distribution[kd].prob(t_associated_r[i]),":",label = "Sampled Constituent {}".format(kd)) #plotting probabilities found in the method
+            plt.plot(t_associated_r[i],sample_mixtures[i][kd],":",label = "Sampled Constituent {}".format(kd)) #plotting probabilities found in the method
             
         plt.legend()
-        #plt.title(EinastoSim.print_params_maggie(X_test[i]).replace("\t",""))
-        plt.xlabel("Radius [Mpc]")
-        plt.ylabel("log({}) []".format(u"\u03C1"))
+        if mode in ["density","d"]:
+            plt.title(EinastoSim.print_params_maggie(X_test[i]).replace("\t",""))
+            plt.xlabel("Radius [Mpc]")
+            plt.ylabel("log({}) []".format(u"\u03C1"))
+        else:
+            plt.title("MSE: {}".format(tf.losses.MSE(test_prof,profile_sample).numpy()))
         mng.full_screen_toggle()
         plt.show()
         plt.pause(1e-1)
